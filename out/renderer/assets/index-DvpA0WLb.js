@@ -33362,51 +33362,117 @@ async function loadIconTextures() {
 }
 //#endregion
 //#region src/shared/geometry.ts
+/** Радиус скругления колен нитки и минимальный отрезок от карточки до колена (мировые единицы). */
+var CORNER_R = 16;
+var LINK_STUB = 24;
 /**
-* Кривая между карточками: выход из боковой стороны (если блоки разнесены по горизонтали)
-* или из верхней/нижней (если по вертикали), плавный изгиб вдоль основной оси.
+* Ортогональная нитка между карточками. Правило одно для всех связей:
+* блоки разнесены по горизонтали (и не сильно по вертикали) — выход из боковой стороны,
+* иначе — из верхней/нижней. Колено — посередине промежутка, поэтому у связей одного блока
+* с карточками одной колонки/ряда общий «ствол», и линии не расходятся веером.
+* Почти соосные карточки соединяются прямой без ступеньки.
 */
-function linkCurve(a, b) {
+function linkRoute(a, b) {
 	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
 	const acx = a.x + aw / 2, acy = a.y + ah / 2;
 	const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
 	const dx = bcx - acx, dy = bcy - acy;
 	const gapX = Math.abs(dx) - (aw + bw) / 2, gapY = Math.abs(dy) - (ah + bh) / 2;
-	if (gapX >= gapY * (240 / 100) || gapX > 0 && gapY <= 0) {
+	if (gapX > 0 && (gapY <= 0 || gapX * 3 >= gapY)) {
 		const dir = Math.sign(dx) || 1;
 		const sx = acx + dir * aw / 2, ex = bcx - dir * bw / 2;
-		const k = Math.max(30, Math.abs(ex - sx) / 2);
+		let sy = acy, ey = bcy;
+		if (Math.abs(sy - ey) < 2 * CORNER_R) {
+			if (acy >= b.y && acy <= b.y + bh) ey = acy;
+			else if (bcy >= a.y && bcy <= a.y + ah) sy = bcy;
+		}
+		const mid = (sx + ex) / 2;
+		const lo = sx + dir * LINK_STUB, hi = ex - dir * LINK_STUB;
+		const roomy = (hi - lo) * dir > 0;
 		return {
+			horizontal: true,
+			dir,
 			sx,
-			sy: acy,
-			c1x: sx + dir * k,
-			c1y: acy,
-			c2x: ex - dir * k,
-			c2y: bcy,
+			sy,
 			ex,
-			ey: bcy
+			ey,
+			mid,
+			lo: roomy ? lo : mid,
+			hi: roomy ? hi : mid
 		};
 	}
 	const dir = Math.sign(dy) || 1;
 	const sy = acy + dir * ah / 2, ey = bcy - dir * bh / 2;
-	const k = Math.max(30, Math.abs(ey - sy) / 2);
+	let sx = acx, ex = bcx;
+	if (Math.abs(sx - ex) < 2 * CORNER_R) {
+		if (acx >= b.x && acx <= b.x + bw) ex = acx;
+		else if (bcx >= a.x && bcx <= a.x + aw) sx = bcx;
+	}
+	const mid = (sy + ey) / 2;
+	const lo = sy + dir * LINK_STUB, hi = ey - dir * LINK_STUB;
+	const roomy = (hi - lo) * dir > 0;
 	return {
-		sx: acx,
+		horizontal: false,
+		dir,
+		sx,
 		sy,
-		c1x: acx,
-		c1y: sy + dir * k,
-		c2x: bcx,
-		c2y: ey - dir * k,
-		ex: bcx,
-		ey
+		ex,
+		ey,
+		mid,
+		lo: roomy ? lo : mid,
+		hi: roomy ? hi : mid
 	};
 }
-/** Треугольник стрелки на конце кривой (по касательной), size — длина в мировых единицах. */
+/** Скругление углов ломаной (плоский массив x,y): каждое колено — короткая квадратичная дуга. */
+function roundCorners(c) {
+	const n = c.length / 2;
+	if (n < 3) return c.slice();
+	const out = [c[0], c[1]];
+	for (let i = 1; i < n - 1; i++) {
+		const px = c[2 * i], py = c[2 * i + 1];
+		const ax = c[2 * i - 2], ay = c[2 * i - 1], bx = c[2 * i + 2], by = c[2 * i + 3];
+		const la = Math.hypot(px - ax, py - ay), lb = Math.hypot(bx - px, by - py);
+		const r = Math.min(CORNER_R, la / 2, lb / 2);
+		if (!(r > .5)) {
+			out.push(px, py);
+			continue;
+		}
+		const x0 = px + (ax - px) / la * r, y0 = py + (ay - py) / la * r;
+		const x1 = px + (bx - px) / lb * r, y1 = py + (by - py) / lb * r;
+		for (let k = 0; k <= 4; k++) {
+			const t = k / 4, u = 1 - t;
+			out.push(u * u * x0 + 2 * u * t * px + t * t * x1, u * u * y0 + 2 * u * t * py + t * t * y1);
+		}
+	}
+	out.push(c[2 * n - 2], c[2 * n - 1]);
+	return out;
+}
+/**
+* Нитка с коленом в trunk (x для горизонтальной, y для вертикальной):
+* corners — опорные точки ломаной (для обхода карточек), pts — она же со скруглёнными углами (для рисования).
+*/
+function makeCurve(r, trunk = r.mid) {
+	const { sx, sy, ex, ey } = r;
+	let corners;
+	if (r.horizontal) corners = Math.abs(sy - ey) < .5 ? [sx, sy, ex, ey] : [sx, sy, trunk, sy, trunk, ey, ex, ey];
+	else corners = Math.abs(sx - ex) < .5 ? [sx, sy, ex, ey] : [sx, sy, sx, trunk, ex, trunk, ex, ey];
+	return {
+		sx,
+		sy,
+		ex,
+		ey,
+		adx: r.horizontal ? r.dir : 0,
+		ady: r.horizontal ? 0 : r.dir,
+		corners,
+		pts: roundCorners(corners)
+	};
+}
+function linkCurve(a, b) {
+	return makeCurve(linkRoute(a, b));
+}
+/** Треугольник стрелки на конце нитки (вдоль последнего отрезка), size — длина в мировых единицах. */
 function arrowHead(c, size) {
-	let tx = c.ex - c.c2x, ty = c.ey - c.c2y;
-	const len = Math.hypot(tx, ty) || 1;
-	tx /= len;
-	ty /= len;
+	const tx = c.adx, ty = c.ady;
 	const bx = c.ex - tx * size, by = c.ey - ty * size;
 	return [
 		c.ex,
@@ -33417,21 +33483,56 @@ function arrowHead(c, size) {
 		by - tx * size * .45
 	];
 }
-/** Сдвиги опорных точек: середина кубической кривой уходит на 0.75 сдвига. */
-var OFFSETS = [
-	70,
-	140,
-	210,
-	260
-];
-var CELL$2 = 400;
-var PAD = 6;
-var SAMPLES$1 = 16;
-var MAX_CACHE = 3e4;
-function bezPoint(c, t) {
-	const u = 1 - t;
-	const a = u * u * u, b = 3 * u * u * t, d = 3 * u * t * t, e = t * t * t;
-	return [a * c.sx + b * c.c1x + d * c.c2x + e * c.ex, a * c.sy + b * c.c1y + d * c.c2y + e * c.ey];
+/** Точка на середине длины нитки — для подписи типа связи. */
+function curveMid(c) {
+	const p = c.pts;
+	let total = 0;
+	for (let i = 2; i < p.length; i += 2) total += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+	let half = total / 2;
+	for (let i = 2; i < p.length; i += 2) {
+		const len = Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+		if (len >= half && len > 0) {
+			const f = half / len;
+			return [p[i - 2] + (p[i] - p[i - 2]) * f, p[i - 1] + (p[i + 1] - p[i - 1]) * f];
+		}
+		half -= len;
+	}
+	return [c.sx, c.sy];
+}
+var GEO_CELL = 400;
+var GEO_PAD = 6;
+var GEO_CACHE = 3e4;
+/** Задевает ли отрезок прямоугольник (Лианг–Барски). */
+function segHitsBox(x0, y0, x1, y1, r) {
+	let t0 = 0, t1 = 1;
+	const dx = x1 - x0, dy = y1 - y0;
+	const p = [
+		-dx,
+		dx,
+		-dy,
+		dy
+	];
+	const q = [
+		x0 - r.x0,
+		r.x1 - x0,
+		y0 - r.y0,
+		r.y1 - y0
+	];
+	for (let i = 0; i < 4; i++) {
+		if (p[i] === 0) {
+			if (q[i] < 0) return false;
+			continue;
+		}
+		const t = q[i] / p[i];
+		if (p[i] < 0) {
+			if (t > t1) return false;
+			if (t > t0) t0 = t;
+		} else {
+			if (t < t0) return false;
+			if (t < t1) t1 = t;
+		}
+	}
+	return t0 <= t1;
 }
 var LinkRouter = class {
 	grid = /* @__PURE__ */ new Map();
@@ -33440,12 +33541,12 @@ var LinkRouter = class {
 		for (const b of blocks) {
 			const box = {
 				id: b.id,
-				x0: b.x - PAD,
-				y0: b.y - PAD,
-				x1: b.x + (b.w ?? 240) + PAD,
-				y1: b.y + (b.h ?? 100) + PAD
+				x0: b.x - GEO_PAD,
+				y0: b.y - GEO_PAD,
+				x1: b.x + (b.w ?? 240) + GEO_PAD,
+				y1: b.y + (b.h ?? 100) + GEO_PAD
 			};
-			for (let cx = Math.floor(box.x0 / CELL$2); cx <= Math.floor(box.x1 / CELL$2); cx++) for (let cy = Math.floor(box.y0 / CELL$2); cy <= Math.floor(box.y1 / CELL$2); cy++) {
+			for (let cx = Math.floor(box.x0 / GEO_CELL); cx <= Math.floor(box.x1 / GEO_CELL); cx++) for (let cy = Math.floor(box.y0 / GEO_CELL); cy <= Math.floor(box.y1 / GEO_CELL); cy++) {
 				const k = `${cx},${cy}`;
 				let arr = this.grid.get(k);
 				if (!arr) this.grid.set(k, arr = []);
@@ -33453,62 +33554,56 @@ var LinkRouter = class {
 			}
 		}
 	}
-	/** Сколько чужих карточек задевает кривая (по точкам вдоль неё, кроме самых концов — они у своих карточек). */
+	/** Сколько чужих карточек задевает ломаная (свои карточки на концах не считаются). */
 	hits(c, aId, bId) {
 		const seen = /* @__PURE__ */ new Set();
-		for (let i = 1; i < SAMPLES$1; i++) {
-			const [x, y] = bezPoint(c, i / SAMPLES$1);
-			for (const box of this.grid.get(`${Math.floor(x / CELL$2)},${Math.floor(y / CELL$2)}`) ?? []) {
+		const p = c.corners;
+		for (let i = 2; i < p.length; i += 2) {
+			const x0 = p[i - 2], y0 = p[i - 1], x1 = p[i], y1 = p[i + 1];
+			for (let cx = Math.floor(Math.min(x0, x1) / GEO_CELL); cx <= Math.floor(Math.max(x0, x1) / GEO_CELL); cx++) for (let cy = Math.floor(Math.min(y0, y1) / GEO_CELL); cy <= Math.floor(Math.max(y0, y1) / GEO_CELL); cy++) for (const box of this.grid.get(`${cx},${cy}`) ?? []) {
 				if (box.id === aId || box.id === bId || seen.has(box.id)) continue;
-				if (x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1) seen.add(box.id);
+				if (segHitsBox(x0, y0, x1, y1, box)) seen.add(box.id);
 			}
 		}
 		return seen.size;
 	}
-	/** Кривая связи с обходом карточек (кэш по положению концов). */
+	/** Нитка связи: колено посередине, а если там чужая карточка — ближайшее свободное место в промежутке (кэш по положению концов). */
 	curve(aId, a, bId, b) {
 		const key = `${aId}:${a.x},${a.y},${a.w},${a.h}|${bId}:${b.x},${b.y},${b.w},${b.h}`;
 		const hit = this.cache.get(key);
 		if (hit) return hit;
-		const base = linkCurve(a, b);
-		let best = base;
-		let bestHits = this.hits(base, aId, bId);
-		if (bestHits > 0) {
-			const horizontal = base.c1y === base.sy && base.c1x !== base.sx;
-			for (const d of OFFSETS) {
-				for (const s of [1, -1]) {
-					const o = d * s;
-					const c = horizontal ? {
-						...base,
-						c1y: base.c1y + o,
-						c2y: base.c2y + o
-					} : {
-						...base,
-						c1x: base.c1x + o,
-						c2x: base.c2x + o
-					};
-					const h = this.hits(c, aId, bId);
-					if (h < bestHits) {
-						best = c;
-						bestHits = h;
-					}
-				}
-				if (bestHits === 0) break;
+		const r = linkRoute(a, b);
+		let best = makeCurve(r);
+		let bestHits = this.hits(best, aId, bId);
+		if (bestHits > 0 && r.lo !== r.hi) for (const f of [
+			.35,
+			.65,
+			.2,
+			.8,
+			0,
+			1
+		]) {
+			const c = makeCurve(r, r.lo + (r.hi - r.lo) * f);
+			const h = this.hits(c, aId, bId);
+			if (h < bestHits) {
+				best = c;
+				bestHits = h;
 			}
+			if (bestHits === 0) break;
 		}
-		if (this.cache.size > MAX_CACHE) this.cache.clear();
+		if (this.cache.size > GEO_CACHE) this.cache.clear();
 		this.cache.set(key, best);
 		return best;
 	}
 };
-/** Границы связи с запасом на изгиб обхода — для индексов тайлов и отсечения. */
+/** Границы связи (колено всегда между концами) с запасом — для индексов тайлов и отсечения. */
 function routedBounds(a, b) {
-	const c = linkCurve(a, b);
+	const r = linkRoute(a, b);
 	return {
-		x0: Math.min(c.sx, c.c1x, c.c2x, c.ex) - 200,
-		y0: Math.min(c.sy, c.c1y, c.c2y, c.ey) - 200,
-		x1: Math.max(c.sx, c.c1x, c.c2x, c.ex) + 200,
-		y1: Math.max(c.sy, c.c1y, c.c2y, c.ey) + 200
+		x0: Math.min(r.sx, r.ex) - 40,
+		y0: Math.min(r.sy, r.ey) - 40,
+		x1: Math.max(r.sx, r.ex) + 40,
+		y1: Math.max(r.sy, r.ey) + 40
 	};
 }
 //#endregion
@@ -33558,13 +33653,15 @@ function clipSegment(x0, y0, x1, y1, r) {
 */
 function strokeCurve(g, c, dashIn, clip) {
 	let dash = dashIn;
+	const pts = c.pts;
 	if (dash !== SOLID) {
-		const approx = Math.hypot(c.c1x - c.sx, c.c1y - c.sy) + Math.hypot(c.c2x - c.c1x, c.c2y - c.c1y) + Math.hypot(c.ex - c.c2x, c.ey - c.c2y);
+		let approx = 0;
+		for (let i = 2; i < pts.length; i += 2) approx += Math.hypot(pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]);
 		const p0 = dash.reduce((s, d) => s + d, 0);
 		if (approx / p0 > MAX_DASHES) dash = dash.map((d) => d * approx / p0 / MAX_DASHES);
 	}
 	const period = dash.reduce((s, d) => s + d, 0);
-	let px = c.sx, py = c.sy;
+	let px = pts[0], py = pts[1];
 	let dist = 0;
 	let emitted = 0;
 	const emit = (ax, ay, bx, by) => {
@@ -33573,10 +33670,9 @@ function strokeCurve(g, c, dashIn, clip) {
 		emitted++;
 		g.moveTo(ax + (bx - ax) * t[0], ay + (by - ay) * t[0]).lineTo(ax + (bx - ax) * t[1], ay + (by - ay) * t[1]);
 	};
-	for (let i = 1; i <= SAMPLES; i++) {
-		const t = i / SAMPLES;
-		const x = bez(t, c.sx, c.c1x, c.c2x, c.ex);
-		const y = bez(t, c.sy, c.c1y, c.c2y, c.ey);
+	for (let i = 2; i < pts.length; i += 2) {
+		const x = pts[i];
+		const y = pts[i + 1];
 		const len = Math.hypot(x - px, y - py);
 		if (!(Math.max(px, x) < clip.x0 || Math.min(px, x) > clip.x1 || Math.max(py, y) < clip.y0 || Math.min(py, y) > clip.y1) && len > 0) {
 			if (dash === SOLID) emit(px, py, x, y);
@@ -33612,7 +33708,7 @@ function drawLinks(g, links, pos, o) {
 	}
 	const { clip } = o;
 	let drawn = 0;
-	const arrow = 7 / o.zoom;
+	const arrow = 9 / o.zoom;
 	for (const type of LINK_TYPES) {
 		const list = byType.get(type);
 		if (!list?.length) continue;
@@ -33955,6 +34051,14 @@ var BoardScene = class BoardScene {
 	shown = /* @__PURE__ */ new Set();
 	selected = null;
 	dragging = null;
+	/** Группа карточек (Ctrl+клик, рамка с Ctrl) — перетаскивается целиком. */
+	group = /* @__PURE__ */ new Set();
+	/** Карточки, которые сейчас тащат группой: их связи рисует динамический слой. */
+	draggingGroup = /* @__PURE__ */ new Set();
+	/** Обводка карточек группы — поверх карточек и слоя точек. */
+	groupSel = new Graphics();
+	/** Рамка выделения области (Ctrl + протянуть). */
+	marquee = new Graphics();
 	lod = "full";
 	dirtyVisible = true;
 	dirtyTiles = true;
@@ -33986,7 +34090,7 @@ var BoardScene = class BoardScene {
 			height: this.app.screen.height
 		});
 		this.dots.visible = this.dotsSel.visible = false;
-		this.world.addChild(this.dots, this.dotsSel, this.tiles.layer, this.linksDyn, this.cardsLayer, this.labels, this.linkGhost, this.handles);
+		this.world.addChild(this.dots, this.dotsSel, this.tiles.layer, this.linksDyn, this.cardsLayer, this.groupSel, this.labels, this.linkGhost, this.handles, this.marquee);
 		this.app.stage.addChild(this.grid, this.world);
 		this.app.renderer.on("resize", (w, h) => {
 			this.grid.width = w;
@@ -34043,6 +34147,8 @@ var BoardScene = class BoardScene {
 			this.applyLinks();
 		}
 		if (this.selected && !this.blocks.has(this.selected)) this.select(null);
+		for (const id of this.group) if (!this.blocks.has(id)) this.group.delete(id);
+		this.drawGroupSel();
 		this.rebuildDots();
 		this.dirtyVisible = this.dirtyTiles = true;
 		this.drawDyn();
@@ -34278,6 +34384,7 @@ var BoardScene = class BoardScene {
 		this.dirtyVisible = this.dirtyTiles = true;
 		if (this.selected || this.dragging || this.hovered || this.labels.children.length) this.drawDyn();
 		if (this.resizeMode) this.drawHandles();
+		if (this.group.size) this.drawGroupSel();
 		this.ev.onView(this.view);
 	}
 	/**
@@ -34407,7 +34514,11 @@ var BoardScene = class BoardScene {
 	*/
 	drawDyn() {
 		this.linksDyn.clear();
-		const ids = new Set([this.selected, this.dragging].filter(Boolean));
+		const ids = new Set([
+			this.selected,
+			this.dragging,
+			...this.draggingGroup
+		].filter(Boolean));
 		this.tiles.layer.alpha = this.selected ? LINK_OPACITY.dimmed / LINK_OPACITY.normal : 1;
 		const list = /* @__PURE__ */ new Set();
 		for (const id of ids) for (const l of this.linksByBlock.get(id) ?? []) list.add(l);
@@ -34442,8 +34553,7 @@ var BoardScene = class BoardScene {
 		for (const l of links) {
 			const a = this.blocks.get(l.fromId), b = this.blocks.get(l.toId);
 			if (!a || !b) continue;
-			const c = this.curveOf(l, a, b);
-			const mx = (c.sx + 3 * c.c1x + 3 * c.c2x + c.ex) / 8, my = (c.sy + 3 * c.c1y + 3 * c.c2y + c.ey) / 8;
+			const [mx, my] = curveMid(this.curveOf(l, a, b));
 			const text = ru.linkType[l.type];
 			const w = measure(FONT.small, text) + 14;
 			const box = new Container();
@@ -34474,12 +34584,10 @@ var BoardScene = class BoardScene {
 			if (!a || !b || this.hidden(a) || this.hidden(b)) continue;
 			const r = routedBounds(a, b);
 			if (wx < r.x0 - tol || wx > r.x1 + tol || wy < r.y0 - tol || wy > r.y1 + tol) continue;
-			const c = this.curveOf(l, a, b);
-			let px = c.sx, py = c.sy;
-			for (let i = 1; i <= 24; i++) {
-				const t = i / 24, u = 1 - t;
-				const x = u * u * u * c.sx + 3 * u * u * t * c.c1x + 3 * u * t * t * c.c2x + t * t * t * c.ex;
-				const y = u * u * u * c.sy + 3 * u * u * t * c.c1y + 3 * u * t * t * c.c2y + t * t * t * c.ey;
+			const p = this.curveOf(l, a, b).pts;
+			let px = p[0], py = p[1];
+			for (let i = 2; i < p.length; i += 2) {
+				const x = p[i], y = p[i + 1];
 				const d = distToSegment(wx, wy, px, py, x, y);
 				if (d < bestD) {
 					bestD = d;
@@ -34514,6 +34622,59 @@ var BoardScene = class BoardScene {
 		this.dotsSel.clear();
 		const sel = this.selected && this.blocks.get(this.selected);
 		if (sel) this.dotsSel.rect(sel.x - 20, sel.y - 20, sel.w + 40, sel.h + 40).fill(THEME.accent);
+	}
+	/** Обводка карточек группы (толщина в экранных px — перерисовывается при зуме). */
+	drawGroupSel() {
+		const g = this.groupSel;
+		g.clear();
+		if (!this.group.size) return;
+		const z = this.view.zoom, m = 4 / z;
+		for (const id of this.group) {
+			const b = this.blocks.get(id);
+			if (b && !this.hidden(b)) g.roundRect(b.x - m, b.y - m, b.w + 2 * m, b.h + 2 * m, 10).stroke({
+				width: 2 / z,
+				color: THEME.accent
+			});
+		}
+	}
+	toggleGroup(id) {
+		if (this.group.has(id)) this.group.delete(id);
+		else this.group.add(id);
+		this.drawGroupSel();
+	}
+	clearGroup() {
+		if (!this.group.size) return;
+		this.group.clear();
+		this.drawGroupSel();
+	}
+	/** Карточки, задетые прямоугольником (мировые координаты). */
+	blocksInRect(x0, y0, x1, y1) {
+		const out = [];
+		for (const id of this.index.query(x0, y0, x1, y1)) {
+			const b = this.blocks.get(id);
+			if (b && !this.hidden(b) && b.x < x1 && b.x + b.w > x0 && b.y < y1 && b.y + b.h > y0) out.push(id);
+		}
+		return out;
+	}
+	drawMarquee(x0, y0, x1, y1) {
+		const z = this.view.zoom;
+		this.marquee.clear().rect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)).fill({
+			color: THEME.accent,
+			alpha: .08
+		}).stroke({
+			width: 1 / z,
+			color: THEME.accent,
+			alpha: .9
+		});
+	}
+	/**
+	* После перемещения или смены размера: слой мелкого масштаба, обводка группы и обход карточек нитками —
+	* сразу по новым позициям, не дожидаясь, пока сохранение вернётся с диска.
+	*/
+	afterGeometryChange() {
+		this.router = new LinkRouter(this.blocks.values());
+		this.rebuildDots();
+		this.drawGroupSel();
 	}
 	select(id) {
 		if (id === this.selected) return;
@@ -34559,6 +34720,8 @@ var BoardScene = class BoardScene {
 		let pan = null;
 		let link = null;
 		let resize = null;
+		/** Ctrl + нажатие: клик — карточка в группу/из группы, протянуть — рамка выделения. */
+		let marq = null;
 		let hoverAt = null;
 		let hoverQueued = false;
 		const leave = () => {
@@ -34605,7 +34768,31 @@ var BoardScene = class BoardScene {
 			}
 			const hit = e.button === 0 ? this.hitTest(p.wx, p.wy) : null;
 			const b = hit ? this.blocks.get(hit) : void 0;
+			if (e.button === 0 && (e.ctrlKey || e.metaKey) && !this.linkMode) {
+				marq = {
+					sx: e.clientX,
+					sy: e.clientY,
+					wx: p.wx,
+					wy: p.wy,
+					moved: false,
+					hit
+				};
+				return;
+			}
 			if (b && (this.linkMode || e.altKey)) link = { fromId: b.id };
+			else if (b && this.group.has(b.id) && this.group.size > 1) drag = {
+				id: b.id,
+				sx: e.clientX,
+				sy: e.clientY,
+				items: [...this.group].map((id) => this.blocks.get(id)).filter((g) => g && !this.hidden(g)).map((g) => ({
+					id: g.id,
+					bx: g.x,
+					by: g.y
+				})),
+				dx: 0,
+				dy: 0,
+				moved: false
+			};
 			else if (b && this.lod !== "dots") drag = {
 				id: b.id,
 				sx: e.clientX,
@@ -34624,6 +34811,15 @@ var BoardScene = class BoardScene {
 			};
 		};
 		const move = (e) => {
+			if (marq) {
+				if (!marq.moved && Math.hypot(e.clientX - marq.sx, e.clientY - marq.sy) < 4) return;
+				marq.moved = true;
+				const p = toWorld(e);
+				marq.ex = p.wx;
+				marq.ey = p.wy;
+				this.drawMarquee(marq.wx, marq.wy, p.wx, p.wy);
+				return;
+			}
 			if (!resize && !drag && !pan && !link) {
 				const p = toWorld(e);
 				const c = this.handleAt(p.wx, p.wy);
@@ -34671,6 +34867,36 @@ var BoardScene = class BoardScene {
 				const p = toWorld(e);
 				const target = this.hitTest(p.wx, p.wy);
 				this.drawLinkGhost(link.fromId, p.wx, p.wy, target !== link.fromId ? target : null);
+			} else if (drag?.items) {
+				const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+				if (!drag.moved) {
+					if (Math.hypot(dx, dy) < 4) return;
+					drag.moved = true;
+					for (const it of drag.items) {
+						this.draggingGroup.add(it.id);
+						this.tiles.beginDrag(it.id);
+						const card = this.cards.get(it.id);
+						if (card) this.cardsLayer.setChildIndex(card, this.cardsLayer.children.length - 1);
+					}
+					this.dirtyTiles = true;
+				}
+				const ddx = snap(dx / this.view.zoom), ddy = snap(dy / this.view.zoom);
+				if (ddx === drag.dx && ddy === drag.dy) return;
+				drag.dx = ddx;
+				drag.dy = ddy;
+				for (const it of drag.items) {
+					const b = this.blocks.get(it.id);
+					if (!b) continue;
+					this.index.remove(b.id, b.x, b.y, b.w, b.h);
+					b.x = it.bx + ddx;
+					b.y = it.by + ddy;
+					this.index.add(b.id, b.x, b.y, b.w, b.h);
+					this.cards.get(b.id)?.position.set(b.x, b.y);
+				}
+				if (this.lod === "dots") this.rebuildDots();
+				this.dirtyVisible = true;
+				this.drawGroupSel();
+				this.drawDyn();
 			} else if (drag) {
 				const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
 				if (!drag.moved) {
@@ -34704,12 +34930,23 @@ var BoardScene = class BoardScene {
 			}
 		};
 		const up = (e) => {
+			if (marq) {
+				const m = marq;
+				marq = null;
+				this.marquee.clear();
+				if (m.moved) {
+					for (const id of this.blocksInRect(Math.min(m.wx, m.ex), Math.min(m.wy, m.ey), Math.max(m.wx, m.ex), Math.max(m.wy, m.ey))) this.group.add(id);
+					this.drawGroupSel();
+				} else if (m.hit) this.toggleGroup(m.hit);
+				return;
+			}
 			if (resize) {
 				const { id, from, last } = resize;
 				resize = null;
 				this.dragging = null;
 				this.tiles.endDrag(id);
 				this.dirtyTiles = true;
+				this.afterGeometryChange();
 				this.drawDyn();
 				if (from.x !== last.x || from.y !== last.y || from.w !== last.w || from.h !== last.h) this.ev.onResize(id, from, last);
 				return;
@@ -34725,13 +34962,42 @@ var BoardScene = class BoardScene {
 				link = null;
 				return;
 			}
+			if (drag?.items) {
+				const d = drag;
+				drag = null;
+				if (d.moved) {
+					this.draggingGroup.clear();
+					for (const it of d.items) this.tiles.endDrag(it.id);
+					this.dirtyTiles = true;
+					this.afterGeometryChange();
+					this.drawDyn();
+					const moves = [];
+					for (const it of d.items) {
+						const b = this.blocks.get(it.id);
+						if (b && (b.x !== it.bx || b.y !== it.by)) moves.push({
+							id: it.id,
+							x: b.x,
+							y: b.y,
+							fromX: it.bx,
+							fromY: it.by
+						});
+					}
+					if (moves.length) this.ev.onMove(moves);
+				} else {
+					this.clearGroup();
+					this.select(this.selected === d.id ? null : d.id);
+				}
+				return;
+			}
 			if (drag) {
 				const id = drag.id;
+				this.clearGroup();
 				if (drag.moved) {
 					const b = this.blocks.get(id);
 					this.dragging = null;
 					this.tiles.endDrag(id);
 					this.dirtyTiles = true;
+					this.afterGeometryChange();
 					this.drawDyn();
 					if (b.x !== drag.bx || b.y !== drag.by) this.ev.onMove([{
 						id,
@@ -34744,10 +35010,17 @@ var BoardScene = class BoardScene {
 				drag = null;
 			}
 			if (pan) {
-				if (!pan.moved) this.select(pan.clickId && pan.clickId !== this.selected ? pan.clickId : null);
+				if (!pan.moved) {
+					this.clearGroup();
+					this.select(pan.clickId && pan.clickId !== this.selected ? pan.clickId : null);
+				}
 				pan = null;
 			}
 		};
+		const key = (e) => {
+			if (e.key === "Escape" && this.group.size) this.clearGroup();
+		};
+		window.addEventListener("keydown", key);
 		const wheel = (e) => {
 			e.preventDefault();
 			const p = toWorld(e);
@@ -34766,6 +35039,7 @@ var BoardScene = class BoardScene {
 			canvas.removeEventListener("pointercancel", up);
 			canvas.removeEventListener("wheel", wheel);
 			canvas.removeEventListener("pointerleave", leave);
+			window.removeEventListener("keydown", key);
 		});
 	}
 };

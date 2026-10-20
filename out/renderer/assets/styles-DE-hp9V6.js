@@ -14079,44 +14079,44 @@ var LINK_TYPES = [
 /** dash: [штрих, пробел] в экранных px; пустой массив — сплошная */
 var LINK_STYLE = {
 	depends_on: {
-		color: "#9B9B9B",
-		width: 1.5,
+		color: "#A8A8A8",
+		width: 2.2,
 		dash: []
 	},
 	data_flow: {
 		color: "#7AA2F7",
-		width: 1,
-		dash: [6, 4]
+		width: 1.8,
+		dash: [7, 4]
 	},
 	hosted_on: {
 		color: "#56B6A6",
-		width: 1.5,
-		dash: [1, 4]
+		width: 2,
+		dash: [2, 4]
 	},
 	blocks: {
 		color: "#E06C75",
-		width: 1.5,
+		width: 2.2,
 		dash: []
 	},
 	relates_to: {
-		color: "#6B6B6B",
-		width: 1,
-		dash: [1, 3]
+		color: "#8A8A8A",
+		width: 1.8,
+		dash: [2, 4]
 	},
 	implemented_in: {
 		color: "#A0A8B8",
-		width: 1,
+		width: 1.8,
 		dash: [
-			6,
+			7,
 			3,
-			1,
+			2,
 			3
 		]
 	},
 	spawned_by: {
 		color: "#8CC084",
-		width: 1,
-		dash: [3, 3]
+		width: 1.8,
+		dash: [4, 3]
 	}
 };
 /** Самый вероятный тип связи from → to по типам блоков (первым в меню выбора). Смысл — ТЗ 5.5. */
@@ -14130,9 +14130,9 @@ function suggestLinkType(from, to) {
 	return "relates_to";
 }
 var LINK_OPACITY = {
-	normal: .55,
+	normal: .75,
 	highlighted: 1,
-	dimmed: .15
+	dimmed: .2
 };
 var TASK_STATUSES = [
 	"idea",
