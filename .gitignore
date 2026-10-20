@@ -1,0 +1,13 @@
+# зависимости и сборка
+node_modules/
+dist/
+*.asar
+*.asar.bak
+
+# данные пользователя никогда не попадают в репозиторий
+Sessions/
+data/
+*.md.bak
+.env
+*.key
+*.pem
