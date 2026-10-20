@@ -23,7 +23,9 @@ if ($LASTEXITCODE -ne 0) { throw 'asar pack failed' }
 "Собрано: $out ($([math]::Round((Get-Item $out).Length / 1MB, 1)) MB)"
 
 if ($Install) {
-  if (Get-Process Ariadne -ErrorAction SilentlyContinue) { throw 'Ariadne запущена. Закройте её и повторите.' }
+  # MCP-серверы агентов (Ariadne.exe mcp\server.js) app.asar не используют — их не считаем.
+  $app = Get-CimInstance Win32_Process -Filter "Name='Ariadne.exe'" | Where-Object { $_.CommandLine -notmatch 'mcp[\\/]server\.js' }
+  if ($app) { throw 'Ariadne запущена. Закройте её и повторите.' }
   $bak = "$Target.$(Get-Date -Format yyyyMMdd-HHmmss).bak"
   Copy-Item $Target $bak
   Copy-Item $out $Target -Force
