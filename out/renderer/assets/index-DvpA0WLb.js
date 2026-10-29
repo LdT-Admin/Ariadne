@@ -35951,6 +35951,7 @@ function Sidebar(props) {
 				]
 			}),
 			menu && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				ref: (el) => clampMenuToViewport(el),
 				className: "context-menu",
 				style: {
 					left: menu.x,
@@ -37333,6 +37334,23 @@ var MN = t.notes.menu;
 var ROW = 34;
 var HIT = 54;
 var DRAG_TYPE = "application/x-ariadne-note";
+/** Меню не должно уходить за края окна: после монтирования измеряем и придвигаем (общая для всех сайдбаров). */
+function clampMenuToViewport(el) {
+	if (!el) return;
+	const pad = 8;
+	const r = el.getBoundingClientRect();
+	if (r.right > window.innerWidth - pad) el.style.left = `${Math.max(pad, window.innerWidth - pad - r.width)}px`;
+	if (r.bottom > window.innerHeight - pad) el.style.top = `${Math.max(pad, window.innerHeight - pad - r.height)}px`;
+}
+/** Подменю у правого края окна открываем влево. */
+function clampSubmenuToViewport(el) {
+	if (!el) return;
+	const r = el.getBoundingClientRect();
+	if (r.right > window.innerWidth - 8) {
+		el.style.left = "auto";
+		el.style.right = "calc(100% + 2px)";
+	}
+}
 /**
 * Левая панель раздела «Заметки» (ТЗ заметок §4.1–4.4): одна строка на заметку, как список сессий Claude.
 * Сверху закреплённые, дальше группы (сворачиваются, перетаскивание заметки на группу или её заметку — в группу),
@@ -37786,6 +37804,7 @@ function NotesSidebar(props) {
 				]
 			}),
 			noteMenu && menuNote && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				ref: (el) => clampMenuToViewport(el),
 				className: "context-menu note-menu",
 				style: {
 					left: noteMenu.x,
@@ -37806,7 +37825,8 @@ function NotesSidebar(props) {
 							...noteMenu,
 							sub: !noteMenu.sub
 						}), { sub: true }), noteMenu.sub && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "context-menu submenu",
+							ref: (el) => clampSubmenuToViewport(el),
+						className: "context-menu submenu",
 							children: noteMenu.newGroup ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RenameInput, {
 								value: "",
 								placeholder: MN.newGroupPlaceholder,
@@ -37862,6 +37882,7 @@ function NotesSidebar(props) {
 				]
 			}),
 			menuGroup && menu && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				ref: (el) => clampMenuToViewport(el),
 				className: "context-menu",
 				style: {
 					left: menu.x,
@@ -39604,6 +39625,16 @@ async function notesScenario() {
 	]));
 	check("З4: «Удалить» красным, перед ним разделитель", !!document.querySelector(".note-menu .menu-sep + .type-menu-item.danger"));
 	await window.api.capture("notes-menu");
+	row("Идеи по CRM").dispatchEvent(new MouseEvent("contextmenu", {
+		bubbles: true,
+		cancelable: true,
+		clientX: 80,
+		clientY: window.innerHeight - 6
+	}));
+	await wait(200);
+	const mr = document.querySelector(".note-menu")?.getBoundingClientRect();
+	check("Ч4: меню у нижнего края остаётся в окне", !!mr && mr.top >= 0 && mr.bottom <= window.innerHeight);
+	await window.api.capture("notes-menu-clamp");
 	key("KeyP");
 	await wait(400);
 	const labels = () => [...document.querySelectorAll(".notes-label")].map((l) => l.textContent);
