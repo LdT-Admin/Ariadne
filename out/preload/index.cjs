@@ -78,6 +78,8 @@ var api = Object.fromEntries([
 	"notesFolderCollapse",
 	"notesMoveToFolder",
 	"notesPinFolder",
+	"notesGroupPlace",
+	"notesFolderPlace",
 	"notesPlace",
 	"notesSearch",
 	"testWindows",

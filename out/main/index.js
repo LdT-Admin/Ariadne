@@ -2214,6 +2214,25 @@ var placeNote = (dir, note, target, before, visible) => update$1(dir, (o) => {
 		o.free = insert(o.free);
 	}
 });
+/** Порядок групп/папок перетаскиванием: before + after (нижняя половина строки-цели). */
+var placeGroup = (dir, id, before, after) => update$1(dir, (o) => {
+	const i = o.groups.findIndex((x) => x.id === id);
+	if (i < 0) return;
+	const [g] = o.groups.splice(i, 1);
+	let j = before ? o.groups.findIndex((x) => x.id === before) : -1;
+	if (j < 0) j = o.groups.length;
+	else if (after) j += 1;
+	o.groups.splice(j, 0, g);
+});
+var placeFolder = (dir, id, before, after) => update$1(dir, (o) => {
+	const i = o.folders.findIndex((x) => x.id === id);
+	if (i < 0) return;
+	const [f] = o.folders.splice(i, 1);
+	let j = before ? o.folders.findIndex((x) => x.id === before) : -1;
+	if (j < 0) j = o.folders.length;
+	else if (after) j += 1;
+	o.folders.splice(j, 0, f);
+});
 //#endregion
 //#region src/shared/notes/metaFile.ts
 /**
@@ -3812,19 +3831,81 @@ function registerIpc(ctx) {
 			}]);
 		},
 		notesOrg: () => readOrg(ctx.notes.store.dir),
-		notesPin: (name) => togglePin(ctx.notes.store.dir, name),
-		notesGroupCreate: (name, notes) => createGroup(ctx.notes.store.dir, name, notes).org,
-		notesGroupRename: (id, name) => renameGroup(ctx.notes.store.dir, id, name),
-		notesGroupDelete: (id) => deleteGroup(ctx.notes.store.dir, id),
-		notesGroupCollapse: (id, collapsed) => setGroupCollapsed(ctx.notes.store.dir, id, collapsed),
-		notesMoveToGroup: (name, id) => moveToGroup(ctx.notes.store.dir, name, id),
-		notesFolderCreate: (name, notes) => createFolder(ctx.notes.store.dir, name, notes).org,
-		notesFolderRename: (id, name) => renameFolder(ctx.notes.store.dir, id, name),
-		notesFolderDelete: (id) => deleteFolder(ctx.notes.store.dir, id),
-		notesFolderCollapse: (id, collapsed) => setFolderCollapsed(ctx.notes.store.dir, id, collapsed),
-		notesMoveToFolder: (name, id) => moveToFolder(ctx.notes.store.dir, name, id),
-		notesPinFolder: (id) => toggleFolderPin(ctx.notes.store.dir, id),
-		notesPlace: (name, target, before, visible) => placeNote(ctx.notes.store.dir, name, target, before, visible),
+		notesPin: (name) => {
+			const org = togglePin(ctx.notes.store.dir, name);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesGroupCreate: (name, notes) => {
+			const r = createGroup(ctx.notes.store.dir, name, notes);
+			ctx.notes.afterOwnChange([]);
+			return r.org;
+		},
+		notesGroupRename: (id, name) => {
+			const org = renameGroup(ctx.notes.store.dir, id, name);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesGroupDelete: (id) => {
+			const org = deleteGroup(ctx.notes.store.dir, id);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesGroupCollapse: (id, collapsed) => {
+			const org = setGroupCollapsed(ctx.notes.store.dir, id, collapsed);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesMoveToGroup: (name, id) => {
+			const org = moveToGroup(ctx.notes.store.dir, name, id);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesFolderCreate: (name, notes) => {
+			const r = createFolder(ctx.notes.store.dir, name, notes);
+			ctx.notes.afterOwnChange([]);
+			return r;
+		},
+		notesFolderRename: (id, name) => {
+			const org = renameFolder(ctx.notes.store.dir, id, name);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesFolderDelete: (id) => {
+			const org = deleteFolder(ctx.notes.store.dir, id);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesFolderCollapse: (id, collapsed) => {
+			const org = setFolderCollapsed(ctx.notes.store.dir, id, collapsed);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesMoveToFolder: (name, id) => {
+			const org = moveToFolder(ctx.notes.store.dir, name, id);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesPinFolder: (id) => {
+			const org = toggleFolderPin(ctx.notes.store.dir, id);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesGroupPlace: (id, before, after) => {
+			const org = placeGroup(ctx.notes.store.dir, id, before, after);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesFolderPlace: (id, before, after) => {
+			const org = placeFolder(ctx.notes.store.dir, id, before, after);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
+		notesPlace: (name, target, before, visible) => {
+			const org = placeNote(ctx.notes.store.dir, name, target, before, visible);
+			ctx.notes.afterOwnChange([]);
+			return org;
+		},
 		notesSearch: (query) => ctx.notes.index.search(ctx.notes.store, query),
 		notesHistory: (name) => listSnapshots(ctx.notes.store.dir, name),
 		notesSnapshot: (name, id) => readSnapshot(ctx.notes.store.dir, name, id),

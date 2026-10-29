@@ -238,6 +238,24 @@ var __iconData$24 = {
 __iconData$24.node;
 var FolderPlus = createLucideIcon(__iconData$24);
 //#endregion
+//#region node_modules/lucide-react/dist/esm/icons/folder.mjs
+/**
+* @license lucide-react v1.59.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var __iconData$24f = {
+	name: "folder",
+	size: 24,
+	node: [["path", {
+		d: "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
+		key: "1kt360"
+	}]]
+};
+__iconData$24f.node;
+var Folder = createLucideIcon(__iconData$24f);
+//#endregion
 //#region node_modules/lucide-react/dist/esm/icons/funnel.mjs
 /**
 * @license lucide-react v1.59.0 - ISC
@@ -37366,6 +37384,8 @@ function NotesSidebar(props) {
 	const [drag, setDrag] = (0, import_react.useState)(null);
 	const [dropTo, setDropTo] = (0, import_react.useState)(null);
 	const [dropLine, setDropLine] = (0, import_react.useState)(null);
+	const [dragBox, setDragBox] = (0, import_react.useState)(null);
+	const [dropBoxLine, setDropBoxLine] = (0, import_react.useState)(null);
 	const [mdDrop, setMdDrop] = (0, import_react.useState)(false);
 	const [searchOpen, setSearchOpen] = (0, import_react.useState)(false);
 	const [query, setQuery] = (0, import_react.useState)("");
@@ -37413,8 +37433,9 @@ function NotesSidebar(props) {
 		const pinSet = new Set(pinned);
 		const groupOf = /* @__PURE__ */ new Map();
 		for (const g of props.org.groups) for (const n of g.notes) if (byName.has(n)) groupOf.set(n, g.id);
+		for (const f of props.org.folders) for (const n of f.notes) if (byName.has(n)) groupOf.set(n, f.id);
 		const out = [];
-		if (pinned.length) {
+		if (pinned.length || props.org.pinnedFolders.length) {
 			out.push({
 				kind: "label",
 				key: "l:pinned",
@@ -37429,6 +37450,61 @@ function NotesSidebar(props) {
 				section: "pinned",
 				next: pinned[i + 1] ?? null
 			}));
+			for (const fid of props.org.pinnedFolders) {
+				const pf = props.org.folders.find((x) => x.id === fid);
+				if (!pf) continue;
+				const pm = pf.notes.filter((n) => byName.has(n) && !pinSet.has(n)).map((n) => byName.get(n));
+				out.push({
+					kind: "folder",
+					key: `f:${pf.id}`,
+					folder: pf,
+					count: pm.length,
+					pinned: true
+				});
+				if (!pf.collapsed) {
+					pm.forEach((n, i) => out.push({
+						kind: "note",
+						key: `n:${n.name}`,
+						note: n,
+						group: pf.id,
+						pinned: false,
+						section: pf.id,
+						next: pm[i + 1]?.name ?? null
+					}));
+					if (!pm.length) out.push({
+						kind: "folder-empty",
+						key: `fe:${pf.id}`,
+						folder: pf.id
+					});
+				}
+			}
+		}
+		for (const f of props.org.folders) {
+			if (props.org.pinnedFolders.includes(f.id)) continue;
+			const members = f.notes.filter((n) => groupOf.get(n) === f.id && !pinSet.has(n)).map((n) => byName.get(n));
+			out.push({
+				kind: "folder",
+				key: `f:${f.id}`,
+				folder: f,
+				count: members.length,
+				pinned: false
+			});
+			if (!f.collapsed) {
+				members.forEach((n, i) => out.push({
+					kind: "note",
+					key: `n:${n.name}`,
+					note: n,
+					group: f.id,
+					pinned: false,
+					section: f.id,
+					next: members[i + 1]?.name ?? null
+				}));
+				if (!members.length) out.push({
+					kind: "folder-empty",
+					key: `fe:${f.id}`,
+					folder: f.id
+				});
+			}
 		}
 		for (const g of props.org.groups) {
 			const members = g.notes.filter((n) => groupOf.get(n) === g.id && !pinSet.has(n)).map((n) => byName.get(n));
@@ -37493,7 +37569,14 @@ function NotesSidebar(props) {
 		const close = () => setMenu(null);
 		const onKey = (e) => {
 			if (e.key === "Escape") return setMenu(null);
-			if (menu.kind !== "note" || menu.newGroup || e.ctrlKey || e.altKey) return;
+			if (menu.newGroup || menu.newFolder || e.ctrlKey || e.altKey) return;
+			if (menu.kind === "folder") {
+				const fid = menu.key;
+				if (e.code === "KeyP") e.preventDefault(), setMenu(null), props.onFolderPin(fid);
+				else if (e.code === "KeyR") e.preventDefault(), setMenu(null), setRenaming(`f:${fid}`);
+				return;
+			}
+			if (menu.kind !== "note") return;
 			const name = menu.key;
 			if (e.code === "KeyP") e.preventDefault(), setMenu(null), props.onPin(name);
 			else if (e.code === "KeyR") e.preventDefault(), setMenu(null), setRenaming(`n:${name}`);
@@ -37529,6 +37612,54 @@ function NotesSidebar(props) {
 			if (name) props.onPlace(name, target, null);
 		}
 	});
+	/** Группы и папки: сами перетаскиваются (порядок) и принимают .md (в папку/группу). */
+	const boxDragProps = (kind, id) => ({
+		draggable: true,
+		onDragStart: (e) => {
+			setDragBox({
+				kind,
+				id
+			});
+			e.dataTransfer.effectAllowed = "move";
+		},
+		onDragEnd: () => {
+			setDragBox(null);
+			setDropBoxLine(null);
+		},
+		onDragOver: (e) => {
+			if (dragBox) {
+				if (dragBox.kind !== kind || dragBox.id === id) return;
+				e.preventDefault();
+				e.dataTransfer.dropEffect = "move";
+				const rect = e.currentTarget.getBoundingClientRect();
+				const after = e.clientY > rect.top + rect.height / 2;
+				setDropTo(null);
+				if (dropBoxLine?.id !== id || dropBoxLine.after !== after) setDropBoxLine({
+					id,
+					after
+				});
+				return;
+			}
+			if (!drag) return;
+			e.preventDefault();
+			e.dataTransfer.dropEffect = "move";
+			setDropTo(id);
+		},
+		onDrop: (e) => {
+			e.preventDefault();
+			if (dragBox) {
+				const src = dragBox;
+				setDragBox(null);
+				setDropBoxLine(null);
+				if (src.id !== id) (kind === "group" ? props.onGroupPlace : props.onFolderPlace)(src.id, id, dropBoxLine?.id === id && dropBoxLine.after);
+				return;
+			}
+			const name = e.dataTransfer.getData(DRAG_TYPE) || drag;
+			setDrag(null);
+			setDropTo(null);
+			if (name) props.onPlace(name, id, null);
+		}
+	});
 	const noteDrop = (r) => ({
 		onDragOver: (e) => {
 			if (!drag) return;
@@ -37557,6 +37688,9 @@ function NotesSidebar(props) {
 	const noteMenu = menu?.kind === "note" ? menu : null;
 	const menuNote = noteMenu ? props.notes.find((n) => n.name === noteMenu.key) : null;
 	const menuGroup = menu?.kind === "group" ? props.org.groups.find((g) => g.id === menu.key) : null;
+	const menuFolder = menu?.kind === "folder" ? props.org.folders.find((f) => f.id === menu.key) : null;
+	const isFolderPinned = !!menuFolder && props.org.pinnedFolders.includes(menuFolder.id);
+	const currentFolder = menuNote ? props.org.folders.find((f) => f.notes.includes(menuNote.name)) : void 0;
 	const isPinned = !!menuNote && props.org.pinned.includes(menuNote.name);
 	const currentGroup = menuNote ? props.org.groups.find((g) => g.notes.includes(menuNote.name)) : void 0;
 	const renderRow = (r, top) => {
@@ -37572,6 +37706,51 @@ function NotesSidebar(props) {
 			...r.key === "l:free" ? dragProps(null) : {},
 			children: r.text
 		}, r.key);
+		if (r.kind === "folder") {
+			const f = r.folder;
+			if (renaming === r.key) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RenameInput, {
+				style,
+				value: f.name,
+				onDone: (name) => {
+					setRenaming(null);
+					if (name && name !== f.name) props.onFolderRename(f.id, name);
+				}
+			}, r.key);
+			return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "sidebar-item note-item note-folder" + (dropTo === f.id ? " drop-into" : "") + (dropBoxLine?.id === f.id ? dropBoxLine.after ? " drop-after" : " drop-before" : "") + (dragBox?.id === f.id ? " dragging" : ""),
+				style,
+				title: dropTo === f.id ? N.folderDrop : f.name,
+				onClick: () => props.onFolderCollapse(f.id, !f.collapsed),
+				onDoubleClick: () => setRenaming(r.key),
+				onContextMenu: (e) => (e.preventDefault(), setMenu({
+					kind: "folder",
+					key: f.id,
+					x: e.clientX,
+					y: e.clientY
+				})),
+				...boxDragProps("folder", f.id),
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(f.collapsed ? Folder : FolderOpen, {
+						size: 15,
+						className: "note-pin"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "board-name",
+						children: f.name
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "badge",
+						children: r.count
+					})
+				]
+			}, r.key);
+		}
+		if (r.kind === "folder-empty") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "notes-label folder-empty",
+			style,
+			...dragProps(r.folder),
+			children: N.folderEmpty
+		}, r.key);
 		if (r.kind === "group") {
 			const g = r.group;
 			if (renaming === r.key) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RenameInput, {
@@ -37583,7 +37762,7 @@ function NotesSidebar(props) {
 				}
 			}, r.key);
 			return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "sidebar-item note-group" + (dropTo === g.id ? " drop-into" : ""),
+				className: "sidebar-item note-group" + (dropTo === g.id ? " drop-into" : "") + (dropBoxLine?.id === g.id ? dropBoxLine.after ? " drop-after" : " drop-before" : "") + (dragBox?.id === g.id ? " dragging" : ""),
 				style,
 				title: dropTo === g.id ? N.groupDrop : g.name,
 				onClick: () => props.onGroupCollapse(g.id, !g.collapsed),
@@ -37594,7 +37773,7 @@ function NotesSidebar(props) {
 					x: e.clientX,
 					y: e.clientY
 				})),
-				...dragProps(g.id),
+				...boxDragProps("group", g.id),
 				children: [
 					g.collapsed ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, { size: 14 }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
@@ -37714,6 +37893,18 @@ function NotesSidebar(props) {
 							N.newNote
 						]
 					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						className: "sidebar-item",
+						onClick: async () => {
+							const id = await props.onNewFolder("");
+							if (id) setRenaming(`f:${id}`);
+						},
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderPlus, { size: 16 }),
+							" ",
+							N.newFolder
+						]
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						className: "icon-btn" + (searchOpen ? " on" : ""),
 						title: N.search,
@@ -37817,14 +38008,14 @@ function NotesSidebar(props) {
 					item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pencil, { size: 14 }), MN.rename, () => (setMenu(null), setRenaming(`n:${menuNote.name}`)), { kbd: "R" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "menu-sub-host",
-						onMouseEnter: () => !noteMenu.sub && setMenu({
+						onMouseEnter: () => noteMenu.sub !== "group" && setMenu({
 							...noteMenu,
-							sub: true
+							sub: "group"
 						}),
 						children: [item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderInput, { size: 14 }), MN.moveToGroup, () => setMenu({
 							...noteMenu,
-							sub: !noteMenu.sub
-						}), { sub: true }), noteMenu.sub && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							sub: noteMenu.sub === "group" ? false : "group"
+						}), { sub: true }), noteMenu.sub === "group" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							ref: (el) => clampSubmenuToViewport(el),
 						className: "context-menu submenu",
 							children: noteMenu.newGroup ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RenameInput, {
@@ -37874,9 +38065,84 @@ function NotesSidebar(props) {
 							] })
 						})]
 					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "menu-sub-host",
+						onMouseEnter: () => noteMenu.sub !== "folder" && setMenu({
+							...noteMenu,
+							sub: "folder"
+						}),
+						children: [item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { size: 14 }), MN.moveToFolder, () => setMenu({
+							...noteMenu,
+							sub: noteMenu.sub === "folder" ? false : "folder"
+						}), { sub: true }), noteMenu.sub === "folder" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "context-menu submenu",
+							children: noteMenu.newFolder ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RenameInput, {
+								value: "",
+								placeholder: MN.newFolderPlaceholder,
+								onDone: (name) => {
+									setMenu(null);
+									if (name) props.onNewFolder(name, [menuNote.name]);
+								}
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								props.org.folders.map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									className: "type-menu-item" + (currentFolder?.id === f.id ? " cursor" : ""),
+									onClick: () => (setMenu(null), props.onMoveToFolder(menuNote.name, f.id)),
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "link-picker-label",
+										children: f.name
+									})
+								}, f.id)),
+								props.org.folders.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "menu-sep" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									className: "type-menu-item",
+									onClick: () => setMenu({
+										...noteMenu,
+										newFolder: true
+									}),
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderPlus, { size: 14 }),
+										" ",
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "link-picker-label",
+											children: MN.newFolder
+										})
+									]
+								}),
+								currentFolder && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									className: "type-menu-item",
+									onClick: () => (setMenu(null), props.onMoveToFolder(menuNote.name, null)),
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderMinus, { size: 14 }),
+										" ",
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "link-picker-label",
+											children: MN.removeFromFolder
+										})
+									]
+								})
+							] })
+						})]
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "menu-sep" }),
 					item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash, { size: 14 }), MN.delete, () => (setMenu(null), props.onDelete(menuNote.name)), {
 						kbd: "D",
+						danger: true
+					})
+				]
+			}),
+			menuFolder && menu && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				ref: (el) => clampMenuToViewport(el),
+				className: "context-menu",
+				style: {
+					left: menu.x,
+					top: menu.y
+				},
+				onPointerDown: (e) => e.stopPropagation(),
+				children: [
+					item(isFolderPinned ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PinOff, { size: 14 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pin, { size: 14 }), isFolderPinned ? MN.unpinFolder : MN.pinFolder, () => (setMenu(null), props.onFolderPin(menuFolder.id)), { kbd: "P" }),
+					item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pencil, { size: 14 }), MN.rename, () => (setMenu(null), setRenaming(`f:${menuFolder.id}`)), { kbd: "R" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "menu-sep" }),
+					item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash, { size: 14 }), MN.deleteFolder, () => (setMenu(null), props.onFolderDelete(menuFolder.id)), {
 						danger: true
 					})
 				]
@@ -38018,6 +38284,8 @@ function NotesSection(props) {
 	const [actionsSlot, setActionsSlot] = (0, import_react.useState)(null);
 	const [org, setOrg] = (0, import_react.useState)({
 		pinned: [],
+		folders: [],
+		pinnedFolders: [],
 		groups: [],
 		free: []
 	});
@@ -38152,6 +38420,22 @@ function NotesSection(props) {
 			onGroupRename: (id, name) => orgDo(window.api.notesGroupRename(id, name)),
 			onGroupDelete: (id) => orgDo(window.api.notesGroupDelete(id)),
 			onGroupCollapse: (id, c) => orgDo(window.api.notesGroupCollapse(id, c)),
+			onNewFolder: async (name, notes = []) => {
+				try {
+					const r = await window.api.notesFolderCreate(name, notes);
+					setOrg(r.org);
+					return r.id;
+				} catch (e) {
+					fail(e);
+				}
+			},
+			onFolderRename: (id, name) => orgDo(window.api.notesFolderRename(id, name)),
+			onFolderDelete: (id) => orgDo(window.api.notesFolderDelete(id)),
+			onFolderCollapse: (id, c) => orgDo(window.api.notesFolderCollapse(id, c)),
+			onFolderPin: (id) => orgDo(window.api.notesPinFolder(id)),
+			onMoveToFolder: (name, id) => orgDo(window.api.notesMoveToFolder(name, id)),
+			onGroupPlace: (id, before, after) => orgDo(window.api.notesGroupPlace(id, before, after)),
+			onFolderPlace: (id, before, after) => orgDo(window.api.notesFolderPlace(id, before, after)),
 			onOpenWindow: (name) => window.api.openNoteWindow(name),
 			onAddFiles: addFiles
 		}),
@@ -39621,6 +39905,7 @@ async function notesScenario() {
 		"Закрепить",
 		"Переименовать",
 		"Переместить в группу",
+		"Переместить в папку",
 		"Удалить"
 	]));
 	check("З4: «Удалить» красным, перед ним разделитель", !!document.querySelector(".note-menu .menu-sep + .type-menu-item.danger"));
@@ -39711,6 +39996,60 @@ async function notesScenario() {
 	await wait(300);
 	const files = (await window.api.notesList()).map((n) => n.name).sort();
 	check("З4: файлы остаются плоско в одной папке", files.length === 5 && files.includes("Таблица итоги"));
+		const fo = await window.api.notesFolderCreate("Проекты", ["Таблица итоги"]);
+	await wait(400);
+	let fo2 = await window.api.notesOrg();
+	check("Ч8: папка создана — заметка ушла из группы в папку", !!fo2.folders.find((f) => f.name === "Проекты")?.notes.includes("Таблица итоги") && !fo2.groups.find((g) => g.name === "Серверы")?.notes.includes("Таблица итоги") && !!row("Таблица итоги")?.className.includes("in-group"));
+	check("Ч8: строка папки — как заметка, со счётчиком", !!document.querySelector(".note-folder")?.textContent.includes("Проекты"));
+	clickText(".note-folder", "Проекты");
+	await wait(300);
+	check("Ч8: клик сворачивает папку", !row("Таблица итоги") && (await window.api.notesOrg()).folders[0].collapsed);
+	clickText(".note-folder", "Проекты");
+	await wait(300);
+	const dtF = new DataTransfer();
+	row("Идеи по CRM").dispatchEvent(new DragEvent("dragstart", {
+		bubbles: true,
+		dataTransfer: dtF
+	}));
+	await wait(50);
+	const drop = [...document.querySelectorAll(".note-folder")].find((el) => el.textContent.includes("Проекты"));
+	drop.dispatchEvent(new DragEvent("dragover", {
+		bubbles: true,
+		cancelable: true,
+		dataTransfer: dtF
+	}));
+	await wait(50);
+	check("Ч8: папка подсвечивает приём .md", drop.className.includes("drop-into"));
+	drop.dispatchEvent(new DragEvent("drop", {
+		bubbles: true,
+		cancelable: true,
+		dataTransfer: dtF
+	}));
+	await wait(400);
+	fo2 = await window.api.notesOrg();
+	check("Ч8: .md перетащили в папку", fo2.folders[0]?.notes.includes("Идеи по CRM"));
+	await window.api.notesMoveToFolder("Идеи по CRM", null);
+	await window.api.notesPinFolder(fo2.folders[0].id);
+	await wait(300);
+	check("Ч8: закреплённая папка — в «Закреплённых»", (await window.api.notesOrg()).pinnedFolders.length === 1 && [...document.querySelectorAll(".notes-label")].map((l) => l.textContent)[0] === "Закреплённые" && !!document.querySelector(".note-folder"));
+	const fb = await window.api.notesFolderCreate("А Ящик", []);
+	let fo3 = await window.api.notesOrg();
+	check("Ч9: вторая папка — после первой", fo3.folders.map((f) => f.name).join("|") === "Проекты|А Ящик");
+	await window.api.notesFolderPlace(fo3.folders[1].id, fo3.folders[0].id, false);
+	check("Ч9: папку переставили до другой", (await window.api.notesOrg()).folders.map((f) => f.name).join("|") === "А Ящик|Проекты");
+	await window.api.notesFolderDelete((await window.api.notesOrg()).folders[0].id);
+	await window.api.notesGroupCreate("Я Ящики", []);
+	fo3 = await window.api.notesOrg();
+	check("Ч9: новая группа — в конце", fo3.groups.map((g) => g.name).join("|") === "Серверы|Я Ящики");
+	await window.api.notesGroupPlace(fo3.groups[1].id, fo3.groups[0].id, false);
+	check("Ч9: группу переставили до другой", (await window.api.notesOrg()).groups.map((g) => g.name).join("|") === "Я Ящики|Серверы");
+	await window.api.notesGroupDelete((await window.api.notesOrg()).groups[0].id);
+	await wait(300);
+	await window.api.capture("notes-folders");
+	await window.api.notesFolderDelete((await window.api.notesOrg()).folders[0].id);
+	await wait(400);
+	fo2 = await window.api.notesOrg();
+	check("Ч8: папку удалили — заметки вернулись в корень", fo2.folders.length === 0 && !fo2.groups.find((g) => g.name === "Серверы")?.notes.includes("Таблица итоги") && !row("Таблица итоги")?.className.includes("in-group"));
 	document.querySelector(".notes-actions .icon-btn")?.click();
 	await wait(200);
 	const si = document.querySelector(".notes-search input");
