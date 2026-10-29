@@ -2040,6 +2040,13 @@ function readOrg(dir) {
 	const groups = readJson$1(join(dir, META_DIR, GROUPS), {});
 	return {
 		pinned: Array.isArray(pins.pinned) ? pins.pinned.filter((x) => typeof x === "string") : [],
+		folders: Array.isArray(groups.folders) ? groups.folders.filter((f) => f && typeof f.id === "string" && typeof f.name === "string").map((f) => ({
+			id: f.id,
+			name: f.name,
+			collapsed: !!f.collapsed,
+			notes: Array.isArray(f.notes) ? f.notes.filter((x) => typeof x === "string") : []
+		})) : [],
+		pinnedFolders: Array.isArray(groups.pinnedFolders) ? groups.pinnedFolders.filter((x) => typeof x === "string") : [],
 		groups: Array.isArray(groups.groups) ? groups.groups.filter((g) => g && typeof g.id === "string" && typeof g.name === "string").map((g) => ({
 			id: g.id,
 			name: g.name,
@@ -2052,6 +2059,8 @@ function readOrg(dir) {
 function writeOrg(dir, org) {
 	atomicWrite(join(dir, META_DIR, PINS), JSON.stringify({ pinned: org.pinned }, null, 2) + "\n");
 	atomicWrite(join(dir, META_DIR, GROUPS), JSON.stringify({
+		folders: org.folders,
+		pinnedFolders: org.pinnedFolders,
 		groups: org.groups,
 		free: org.free
 	}, null, 2) + "\n");
@@ -2067,6 +2076,11 @@ var groupOf = (org, id) => {
 	const g = org.groups.find((x) => x.id === id);
 	if (!g) throw new Error("Группы нет");
 	return g;
+};
+var folderOf = (org, id) => {
+	const f = org.folders.find((x) => x.id === id);
+	if (!f) throw new Error("Папки нет");
+	return f;
 };
 var togglePin = (dir, note) => update$1(dir, (o) => {
 	o.pinned = o.pinned.includes(note) ? o.pinned.filter((n) => n !== note) : [note, ...o.pinned];
@@ -2097,30 +2111,74 @@ var deleteGroup = (dir, id) => update$1(dir, (o) => {
 var setGroupCollapsed = (dir, id, collapsed) => update$1(dir, (o) => {
 	groupOf(o, id).collapsed = collapsed;
 });
+/** Заметка живёт либо в группе, либо в папке — взаимно исключаем, чтобы список не превращался в хаос. */
+var removeFromContainers = (o, note) => {
+	for (const g of o.groups) g.notes = g.notes.filter((n) => n !== note);
+	for (const f of o.folders) f.notes = f.notes.filter((n) => n !== note);
+};
+function createFolder(dir, name, notes = []) {
+	const id = `f_${randomBytes(4).toString("hex")}`;
+	const clean = name.replace(/\s+/g, " ").trim() || "Папка";
+	return {
+		org: update$1(dir, (o) => {
+			for (const n of notes) removeFromContainers(o, n);
+			o.folders.push({
+				id,
+				name: clean,
+				collapsed: false,
+				notes: [...notes]
+			});
+		}),
+		id
+	};
+}
+var renameFolder = (dir, id, name) => update$1(dir, (o) => {
+	folderOf(o, id).name = name.replace(/\s+/g, " ").trim() || folderOf(o, id).name;
+});
+/** Удалить папку: заметки остаются (возвращаются в корень списка). */
+var deleteFolder = (dir, id) => update$1(dir, (o) => {
+	o.folders = o.folders.filter((f) => f.id !== id);
+	o.pinnedFolders = o.pinnedFolders.filter((x) => x !== id);
+});
+var setFolderCollapsed = (dir, id, collapsed) => update$1(dir, (o) => {
+	folderOf(o, id).collapsed = collapsed;
+});
+/** В папку (null — убрать из папки). */
+var moveToFolder = (dir, note, id) => update$1(dir, (o) => {
+	if (id) folderOf(o, id);
+	removeFromContainers(o, note);
+	if (id) folderOf(o, id).notes.push(note);
+});
+var toggleFolderPin = (dir, id) => update$1(dir, (o) => {
+	folderOf(o, id);
+	o.pinnedFolders = o.pinnedFolders.includes(id) ? o.pinnedFolders.filter((x) => x !== id) : [id, ...o.pinnedFolders];
+});
 /** В группу (null — убрать из группы). Заметка бывает только в одной группе. */
 var moveToGroup = (dir, note, id) => update$1(dir, (o) => {
 	if (id) groupOf(o, id);
-	for (const g of o.groups) g.notes = g.notes.filter((n) => n !== note);
+	removeFromContainers(o, note);
 	if (id) groupOf(o, id).notes.push(note);
 });
-/** Заметку переименовали — закрепление и группа следуют за ней. */
+/** Заметку переименовали — закрепление, папка и группа следуют за ней. */
 function renameInOrg(dir, from, to) {
 	const org = readOrg(dir);
-	if (!(org.pinned.includes(from) || org.free.includes(from) || org.groups.some((g) => g.notes.includes(from)))) return;
+	if (!(org.pinned.includes(from) || org.free.includes(from) || org.groups.some((g) => g.notes.includes(from)) || org.folders.some((f) => f.notes.includes(from)))) return;
 	update$1(dir, (o) => {
 		o.pinned = o.pinned.map((n) => n === from ? to : n);
 		o.free = o.free.map((n) => n === from ? to : n);
 		for (const g of o.groups) g.notes = g.notes.map((n) => n === from ? to : n);
+		for (const f of o.folders) f.notes = f.notes.map((n) => n === from ? to : n);
 	});
 }
-/** Заметку удалили в корзину — из закреплённых и групп убираем. */
+/** Заметку удалили в корзину — из закреплённых, папок и групп убираем. */
 function forgetInOrg(dir, note) {
 	const org = readOrg(dir);
-	if (!org.pinned.includes(note) && !org.free.includes(note) && !org.groups.some((g) => g.notes.includes(note))) return;
+	if (!(org.pinned.includes(note) || org.free.includes(note) || org.groups.some((g) => g.notes.includes(note)) || org.folders.some((f) => f.notes.includes(note)))) return;
 	update$1(dir, (o) => {
 		o.pinned = o.pinned.filter((n) => n !== note);
 		o.free = o.free.filter((n) => n !== note);
 		for (const g of o.groups) g.notes = g.notes.filter((n) => n !== note);
+		for (const f of o.folders) f.notes = f.notes.filter((n) => n !== note);
 	});
 }
 /**
@@ -2141,8 +2199,13 @@ var placeNote = (dir, note, target, before, visible) => update$1(dir, (o) => {
 		return;
 	}
 	o.pinned = o.pinned.filter((n) => n !== note);
-	for (const g of o.groups) g.notes = g.notes.filter((n) => n !== note);
+	removeFromContainers(o, note);
 	if (target) {
+		const f = o.folders.find((x) => x.id === target);
+		if (f) {
+			f.notes = insert(f.notes);
+			return;
+		}
 		const g = groupOf(o, target);
 		g.notes = insert(g.notes);
 		o.free = o.free.filter((n) => n !== note);
@@ -3755,6 +3818,12 @@ function registerIpc(ctx) {
 		notesGroupDelete: (id) => deleteGroup(ctx.notes.store.dir, id),
 		notesGroupCollapse: (id, collapsed) => setGroupCollapsed(ctx.notes.store.dir, id, collapsed),
 		notesMoveToGroup: (name, id) => moveToGroup(ctx.notes.store.dir, name, id),
+		notesFolderCreate: (name, notes) => createFolder(ctx.notes.store.dir, name, notes).org,
+		notesFolderRename: (id, name) => renameFolder(ctx.notes.store.dir, id, name),
+		notesFolderDelete: (id) => deleteFolder(ctx.notes.store.dir, id),
+		notesFolderCollapse: (id, collapsed) => setFolderCollapsed(ctx.notes.store.dir, id, collapsed),
+		notesMoveToFolder: (name, id) => moveToFolder(ctx.notes.store.dir, name, id),
+		notesPinFolder: (id) => toggleFolderPin(ctx.notes.store.dir, id),
 		notesPlace: (name, target, before, visible) => placeNote(ctx.notes.store.dir, name, target, before, visible),
 		notesSearch: (query) => ctx.notes.index.search(ctx.notes.store, query),
 		notesHistory: (name) => listSnapshots(ctx.notes.store.dir, name),
