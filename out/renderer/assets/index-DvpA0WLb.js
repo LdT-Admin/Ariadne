@@ -37959,7 +37959,7 @@ function NotesSidebar(props) {
 						className: "sidebar-item",
 						onClick: props.onNew,
 						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 15 }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SquarePlus, { size: 16 }),
 							" ",
 							N.newNote
 						]
