@@ -14446,8 +14446,14 @@ var ru = {
 	settings: {
 		title: "Настройки",
 		close: "Закрыть",
-		agentsTitle: "Подключить агента",
-		agentsHint: "Прописывает MCP-сервер ariadne-board в конфиг агента. После подключения перезапустите сессию агента. Если папку Ariadne перенесли — нажмите «Обновить путь».",
+		nav: {
+			account: "Аккаунт",
+			agents: "Подключения",
+			boards: "Доски",
+			notes: "Заметки",
+			updates: "Обновления"
+		},
+		agentsHint: "MCP-сервер ariadne-board: доски и заметки прямо в агенте.",
 		status: {
 			connected: "Подключено",
 			outdated: "Путь устарел",
@@ -14455,25 +14461,25 @@ var ru = {
 		},
 		connect: "Подключить",
 		reconnect: "Обновить путь",
-		copyJson: "Скопировать JSON",
-		copyCli: "Скопировать команду",
-		copied: "Скопировано в буфер обмена",
-		connected: (name) => `${name}: сервер ariadne-board прописан. Перезапустите сессию агента.`,
-		manualHint: "Не получилось записать автоматически? Вставьте JSON в настройки агента вручную.",
+		copyJson: "JSON",
+		copyCli: "Команда",
+		copied: "Скопировано",
+		connected: (name) => `${name}: подключено. Перезапустите сессию агента.`,
 		serverMissing: "MCP-сервер не собран — выполните npm run build:mcp",
-		projectTitle: (board) => `Папка проекта доски «${board}»`,
-		projectHint: "В эту папку Ariadne пишет PROJECT_BOARD.md — свежий обзор доски для агента — и, по кнопке, инструкции в CLAUDE.md / AGENTS.md.",
-		noProject: "Папка не выбрана",
-		chooseDir: "Выбрать папку…",
+		boardsHint: "Папка проекта — куда Ariadne пишет обзор доски для агентов (PROJECT_BOARD.md) и инструкции (CLAUDE.md / AGENTS.md).",
+		boardNoDir: "Папка проекта не выбрана",
+		noBoards: "Досок пока нет",
+		choose: "Выбрать…",
+		change: "Сменить…",
+		open: "Открыть",
 		unlink: "Отвязать",
-		writeInstructions: "Записать инструкции",
-		instructionsResult: {
-			created: "создан",
-			updated: "обновлён",
-			appended: "дополнен",
-			unchanged: "без изменений"
-		},
-		noBoard: "Выберите доску в левой панели",
+		instructions: "Инструкции",
+		instrDone: (files) => `Инструкции записаны: ${files}`,
+		sharedTag: "общая",
+		notesHint: "Все заметки (.md) и вложения хранятся в этой папке. При смене папки файлы переносятся.",
+		notesOpen: "Открыть папку",
+		notesChange: "Сменить папку…",
+		notesCount: (n) => `Заметок: ${n}`,
 		upd: {
 			title: "Обновления",
 			current: (v) => `Текущая версия: ${v}`,
@@ -14513,8 +14519,7 @@ var ru = {
 			syncToast: (b, n) => `Синхронизировано: досок ${b}, заметок ${n}`,
 			makeShared: "Сделать совместной…",
 			sharedLabel: "общая"
-		}
-	},
+		}	},
 	hotkeys: {
 		title: "Горячие клавиши",
 		list: [

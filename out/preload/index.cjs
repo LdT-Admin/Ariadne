@@ -107,6 +107,7 @@ var api = Object.fromEntries([
 	"notesFileInfo",
 	"notesOpenFile",
 	"notesShowFile",
+	"openPath",
 	"search",
 	"listTrash",
 	"purgeTrash",

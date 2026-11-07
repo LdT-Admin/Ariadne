@@ -4105,6 +4105,11 @@ function registerIpc(ctx) {
 			if (err) throw new Error(err);
 		},
 		notesShowFile: (href, dir) => shell.showItemInFolder(S(dir).resolveHref(href)),
+		openPath: (target) => {
+			const err = shell.openPath(String(target));
+			if (err) throw new Error(err);
+			return true;
+		},
 		uiSet: (key, value) => {
 			if (key !== "section" && key !== "lastNote") throw new Error(`Неизвестный ключ: ${key}`);
 			ctx.db.prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(`ui_${key}`, String(value));

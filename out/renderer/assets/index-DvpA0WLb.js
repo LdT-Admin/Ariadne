@@ -283,6 +283,56 @@ var __iconData$24p = {
 __iconData$24p.node;
 var FilePlus2 = createLucideIcon(__iconData$24p);
 //#endregion
+//#region node_modules/lucide-react/dist/esm/icons/user.mjs
+/**
+* @license lucide-react v1.59.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var __iconData$24u1 = {
+	name: "user",
+	size: 24,
+	node: [["path", {
+		d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2",
+		key: "k24u1"
+	}], ["circle", {
+		cx: 12,
+		cy: 7,
+		r: 4,
+		key: "k24u2"
+	}]]
+};
+__iconData$24u1.node;
+var User = createLucideIcon(__iconData$24u1);
+//#endregion
+//#region node_modules/lucide-react/dist/esm/icons/refresh-cw.mjs
+/**
+* @license lucide-react v1.59.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var __iconData$24r = {
+	name: "refresh-cw",
+	size: 24,
+	node: [["path", {
+		d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8",
+		key: "k24r1"
+	}], ["path", {
+		d: "M21 3v5h-5",
+		key: "k24r2"
+	}], ["path", {
+		d: "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16",
+		key: "k24r3"
+	}], ["path", {
+		d: "M8 16H3v5",
+		key: "k24r4"
+	}]]
+};
+__iconData$24r.node;
+var RefreshCw = createLucideIcon(__iconData$24r);
+//#endregion
 //#region node_modules/lucide-react/dist/esm/icons/users.mjs
 /**
 * @license lucide-react v1.59.0 - ISC
@@ -36382,24 +36432,53 @@ function UpdateOverlay(props) {
 		})
 	});
 }
+/** Настройки: слева меню разделов, справа контент. */
 function SettingsDialog(props) {
+	const [tab, setTab] = (0, import_react.useState)("boards");
 	const [info, setInfo] = (0, import_react.useState)(null);
 	const [error, setError] = (0, import_react.useState)("");
-	const [files, setFiles] = (0, import_react.useState)(["CLAUDE.md", "AGENTS.md"]);
-	const [written, setWritten] = (0, import_react.useState)("");
 	const [upd, setUpd] = (0, import_react.useState)(null);
 	const [updBusy, setUpdBusy] = (0, import_react.useState)(false);
 	const [acc, setAcc] = (0, import_react.useState)(null);
 	const [accBusy, setAccBusy] = (0, import_react.useState)(false);
 	const [accErr, setAccErr] = (0, import_react.useState)("");
 	const [accForm, setAccForm] = (0, import_react.useState)({ server: "http://100.68.27.113:3010", login: "", password: "" });
+	const [boards, setBoards] = (0, import_react.useState)([]);
+	const [notes, setNotes] = (0, import_react.useState)(null);
+	const reload = (0, import_react.useCallback)(async () => {
+		setInfo(await window.api.agentsInfo().catch(() => null));
+		setBoards(await window.api.listBoards().catch(() => []));
+		const nd = await window.api.notesDir().catch(() => null);
+		const list = await window.api.notesList().catch(() => []);
+		setNotes(nd ? { dir: nd.path, count: list.length } : null);
+	}, []);
+	(0, import_react.useEffect)(() => {
+		reload();
+	}, [reload]);
 	(0, import_react.useEffect)(() => {
 		window.api.updatesCheck().then(setUpd, () => setUpd(null));
-		window.api.syncStatus().then((s) => {
-			setAcc(s);
-			if (s.server) setAccForm((f) => ({ ...f, server: s.server, login: s.login ?? f.login }));
+		window.api.syncStatus().then((x) => {
+			setAcc(x);
+			if (x.server) setAccForm((f) => ({ ...f, server: x.server, login: x.login ?? f.login }));
 		}, () => setAcc(null));
 	}, []);
+	(0, import_react.useEffect)(() => {
+		const onKey = (e) => {
+			if (e.key !== "Escape") return;
+			e.stopImmediatePropagation();
+			props.onClose();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [props.onClose]);
+	const run = async (fn) => {
+		setError("");
+		try {
+			await fn();
+		} catch (e) {
+			setError(String(e.message).replace(/^Error invoking remote method 'db': (Error: )?/, ""));
+		}
+	};
 	const accRun = async (fn) => {
 		setAccErr("");
 		setAccBusy(true);
@@ -36422,326 +36501,395 @@ function SettingsDialog(props) {
 			setUpdBusy(false);
 		}
 	};
-	const reload = (0, import_react.useCallback)(async () => setInfo(await window.api.agentsInfo()), []);
-	(0, import_react.useEffect)(() => {
-		reload();
-	}, [reload]);
-	(0, import_react.useEffect)(() => {
-		const onKey = (e) => {
-			if (e.key !== "Escape") return;
-			e.stopImmediatePropagation();
-			props.onClose();
-		};
-		window.addEventListener("keydown", onKey, true);
-		return () => window.removeEventListener("keydown", onKey, true);
-	}, [props.onClose]);
-	const run = async (fn) => {
-		setError("");
-		try {
-			await fn();
-		} catch (e) {
-			setError(String(e.message).replace(/^Error invoking remote method 'db': (Error: )?/, ""));
-		}
-	};
 	const copy = (text) => run(async () => (await window.api.copyText(text), toast(S.copied)));
-	const connect = (kind, name) => run(async () => {
-		await window.api.connectAgent(kind);
-		await reload();
-		toast(S.connected(name));
+	const NAV = [
+		{ id: "account", label: S.nav.account, Icon: User },
+		{ id: "agents", label: S.nav.agents, Icon: Bot },
+		{ id: "boards", label: S.nav.boards, Icon: LayoutDashboard },
+		{ id: "notes", label: S.nav.notes, Icon: FileText },
+		{ id: "updates", label: S.nav.updates, Icon: RefreshCw }
+	];
+	const chip = (st) => st === "connected" ? "ok" : st === "outdated" ? "warn" : "off";
+	const chipText = (st) => st === "connected" ? S.status.connected : st === "outdated" ? S.status.outdated : S.status.missing;
+	const field = (label, key, type = "text") => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+		className: "field",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: label }),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+				className: "input",
+				type,
+				autoComplete: "off",
+				value: accForm[key],
+				onChange: (e) => setAccForm({ ...accForm, [key]: e.target.value })
+			})
+		]
 	});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "modal-backdrop",
 		onPointerDown: (e) => e.target === e.currentTarget && props.onClose(),
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "modal",
+			className: "modal settings-modal",
 			role: "dialog",
 			"aria-label": S.title,
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
-				className: "modal-head",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "trash-title",
-						children: S.title
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						className: "icon-btn",
-						title: S.close,
-						onClick: props.onClose,
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16 })
-					})
-				]
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "modal-body",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-						className: "settings-section",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.upd.title }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "agent-row",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "agent-main",
-										children: upd ? upd.error ? S.upd.failed(upd.error) : upd.available ? S.upd.availableTitle(upd.latest.version) : S.upd.current(upd.current) : S.upd.checking
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										className: "mini-btn",
-										disabled: updBusy,
-										onClick: checkUpdates,
-										children: updBusy ? S.upd.checking : S.upd.check
-									}),
-									upd?.available && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										className: "btn primary",
-										onClick: () => props.onUpdate({ version: upd.latest.version, notes: upd.latest.notes ?? "" }),
-										children: S.upd.apply
-									})
-								]
-							})
-						]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-						className: "settings-section",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.acc.title }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "hint",
-								children: S.acc.hint
-							}),
-							acc?.configured ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "agent-row",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "agent-main",
-											children: S.acc.signedAs(acc.login ?? "")
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											className: "mini-btn",
-											disabled: accBusy,
-											onClick: () => accRun(() => window.api.syncNow()),
-											children: S.acc.syncNow
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											className: "mini-btn",
-											disabled: accBusy,
-											onClick: () => accRun(async () => {
-												await window.api.syncLogout();
-											}),
-											children: S.acc.logout
-										})
-									]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-									className: "hint",
-									children: S.acc.lastSync(acc.lastRun ? new Date(acc.lastRun).toLocaleString() : S.acc.never)
-								})
-							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "acc-form",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											className: "input",
-											placeholder: S.acc.server,
-											value: accForm.server,
-											onChange: (e) => setAccForm({ ...accForm, server: e.target.value })
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											className: "input",
-											placeholder: S.acc.login,
-											value: accForm.login,
-											autoComplete: "off",
-											onChange: (e) => setAccForm({ ...accForm, login: e.target.value })
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											className: "input",
-											type: "password",
-											placeholder: S.acc.password,
-											value: accForm.password,
-											autoComplete: "off",
-											onChange: (e) => setAccForm({ ...accForm, password: e.target.value })
-										})
-									]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "modal-actions",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											className: "btn",
-											disabled: accBusy || !accForm.login || !accForm.password,
-											onClick: () => accRun(() => window.api.syncRegister(accForm.server, accForm.login, accForm.password)),
-											children: S.acc.create
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-											className: "btn primary",
-											disabled: accBusy || !accForm.login || !accForm.password,
-											onClick: () => accRun(() => window.api.syncLogin(accForm.server, accForm.login, accForm.password)),
-											children: S.acc.signIn
-										})
-									]
-								})
-							] }),
-							accErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-								className: "error",
-								children: accErr
-							})
-						]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-						className: "settings-section",
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.agentsTitle }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "hint",
-								children: S.agentsHint
-							}),
-							info && !info.serverExists && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "error",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 13 }),
-									" ",
-									S.serverMissing
-								]
-							}),
-							info?.agents.map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "agent-row",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bot, {
-										size: 18,
-										className: "muted"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "agent-main",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "agent-name",
-											children: [a.name, /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-												className: "status-badge " + a.status,
-												children: [
-													a.status === "connected" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { size: 11 }),
-													" ",
-													S.status[a.status]
-												]
-											})]
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: "att-sub",
-											children: a.file
-										})]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-										className: "mini-btn",
-										title: S.manualHint,
-										onClick: () => copy(a.snippet),
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { size: 12 }),
-											" ",
-											S.copyJson
-										]
-									}),
-									a.kind === "claude" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-										className: "mini-btn",
-										onClick: () => copy(info.claudeCli),
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { size: 12 }),
-											" ",
-											S.copyCli
-										]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										className: "btn" + (a.status === "connected" ? "" : " primary"),
-										onClick: () => connect(a.kind, a.name),
-										children: a.status === "missing" ? S.connect : S.reconnect
-									})
-								]
-							}, a.kind))
-						]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
-						className: "settings-section",
-						children: props.board ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.projectTitle(props.board.name) }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "hint",
-								children: S.projectHint
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "agent-row",
-								children: [
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, {
-										size: 18,
-										className: "muted"
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-										className: "agent-main",
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-											className: props.board.projectDir ? "" : "muted",
-											children: props.board.projectDir ?? S.noProject
-										})
-									}),
-									props.board.projectDir && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										className: "mini-btn",
-										onClick: () => run(async () => (await window.api.clearProjectDir(props.board.id), props.onBoardsChanged())),
-										children: S.unlink
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										className: "btn",
-										onClick: () => run(async () => (await window.api.chooseProjectDir(props.board.id), props.onBoardsChanged())),
-										children: S.chooseDir
-									})
-								]
-							}),
-							props.board.projectDir && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "instructions-row",
-								children: [
-									["CLAUDE.md", "AGENTS.md"].map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-										className: "check-label",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-											type: "checkbox",
-											className: "checkbox",
-											checked: files.includes(f),
-											onChange: () => setFiles(files.includes(f) ? files.filter((x) => x !== f) : [...files, f])
-										}), f]
-									}, f)),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
-									written && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "hint",
-										children: written
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-										className: "btn primary",
-										disabled: !files.length,
-										onClick: () => run(async () => {
-											const r = await window.api.writeInstructions(props.board.id, files);
-											setWritten(r.map((x) => `${x.file} — ${S.instructionsResult[x.result] ?? x.result}`).join(", "));
-										}),
-										children: S.writeInstructions
-									})
-								]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
-								className: "settings-sub",
-								children: t.notes.boardNotes.title
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(BoardNotesSettings, {
-								boardId: props.board.id,
-								boardName: props.board.name,
-								onChanged: props.onBoardNotesChanged
-							})
-						] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "hint",
-							children: S.noBoard
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
+					className: "modal-head",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "trash-title",
+							children: S.title
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							className: "icon-btn",
+							title: S.close,
+							onClick: props.onClose,
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { size: 16 })
 						})
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotesSettings, { onMoved: props.onNotesMoved }),
-					error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "error",
-						children: error
-					})
-				]
-			})]
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "modal-body settings-body",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("nav", {
+							className: "settings-nav",
+							children: NAV.map(({ id, label, Icon }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								className: tab === id ? "on" : "",
+								onClick: () => setTab(id),
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Icon, { size: 15 }),
+									" ",
+									label
+								]
+							}, id))
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "settings-pane",
+							children: [
+								tab === "account" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+									className: "settings-section",
+									children: acc?.configured ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.account }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "kv",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Логин" }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: acc.login ?? "" })
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "kv",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Сервер" }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: acc.server ?? "" })
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "kv",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Синхронизация" }),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: acc.lastRun ? new Date(acc.lastRun).toLocaleString() : S.acc.never })
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "modal-actions",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "btn primary",
+													disabled: accBusy,
+													onClick: () => accRun(() => window.api.syncNow()),
+													children: S.acc.syncNow
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "btn",
+													disabled: accBusy,
+													onClick: () => accRun(async () => {
+														await window.api.syncLogout();
+													}),
+													children: S.acc.logout
+												})
+											]
+										}),
+										accErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "error",
+											children: accErr
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "hint",
+											children: S.acc.hint
+										})
+									] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.account }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "hint",
+											children: S.acc.hint
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "acc-form",
+											children: [
+												field(S.acc.server, "server"),
+												field(S.acc.login, "login"),
+												field(S.acc.password, "password", "password")
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "modal-actions",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "btn",
+													disabled: accBusy || !accForm.login || !accForm.password,
+													onClick: () => accRun(() => window.api.syncRegister(accForm.server, accForm.login, accForm.password)),
+													children: S.acc.create
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "btn primary",
+													disabled: accBusy || !accForm.login || !accForm.password,
+													onClick: () => accRun(() => window.api.syncLogin(accForm.server, accForm.login, accForm.password)),
+													children: S.acc.signIn
+												})
+											]
+										}),
+										accErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "error",
+											children: accErr
+										})
+									] })
+								}),
+								tab === "agents" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+									className: "settings-section",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.agents }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "hint",
+											children: S.agentsHint
+										}),
+										info && !info.serverExists && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "error",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 13 }),
+												" ",
+												S.serverMissing
+											]
+										}),
+										(info?.agents ?? []).map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "agent-card",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bot, {
+													size: 18,
+													className: "muted"
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "agent-main",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "agent-name-row",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																	className: "agent-name",
+																	children: a.name
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																	className: `status-chip ${chip(a.status)}`,
+																	children: [
+																		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot" }),
+																		" ",
+																		chipText(a.status)
+																	]
+																})
+															]
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+															className: "agent-file",
+															title: a.file,
+															children: a.file
+														})
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: a.status === "connected" ? "mini-btn" : "btn primary",
+													onClick: () => run(async () => {
+														await window.api.connectAgent(a.kind);
+														await reload();
+														toast(S.connected(a.name));
+													}),
+													children: a.status === "connected" ? S.reconnect : a.status === "outdated" ? S.reconnect : S.connect
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "mini-btn",
+													title: S.copyJson,
+													onClick: () => copy(a.snippet),
+													children: S.copyJson
+												}),
+												a.kind === "claude" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "mini-btn",
+													title: S.copyCli,
+													onClick: () => copy(info.claudeCli),
+													children: S.copyCli
+												})
+											]
+										}, a.kind))
+									]
+								}),
+								tab === "boards" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+									className: "settings-section",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.boards }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "hint",
+											children: S.boardsHint
+										}),
+										boards.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "hint",
+											children: S.noBoards
+										}),
+										boards.slice().sort((a, b) => a.id === props.board?.id ? -1 : b.id === props.board?.id ? 1 : 0).map((b) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "board-card",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "board-head",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "agent-name",
+															children: b.name
+														}),
+														b.sharedAt ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+															className: "tag-shared",
+															children: S.sharedTag
+														}) : null
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "dir-line",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+															className: "dir-path",
+															title: b.projectDir ?? "",
+															children: b.projectDir ?? S.boardNoDir
+														}),
+														b.projectDir && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															className: "mini-btn",
+															onClick: () => run(() => window.api.openPath(b.projectDir)),
+															children: S.open
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															className: "mini-btn",
+															onClick: () => run(async () => {
+																await window.api.chooseProjectDir(b.id);
+																await reload();
+																props.onBoardsChanged?.();
+															}),
+															children: b.projectDir ? S.change : S.choose
+														}),
+														b.projectDir && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															className: "mini-btn",
+															onClick: () => run(async () => {
+																await window.api.clearProjectDir(b.id);
+																await reload();
+																props.onBoardsChanged?.();
+															}),
+															children: S.unlink
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															className: "mini-btn",
+															disabled: !b.projectDir,
+															onClick: () => run(async () => {
+																const r = await window.api.writeInstructions(b.id, ["CLAUDE.md", "AGENTS.md"]);
+																toast(S.instrDone(r.map((x) => x.file).join(", ")));
+															}),
+															children: S.instructions
+														})
+													]
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(BoardNotesSettings, {
+													boardId: b.id,
+													boardName: b.name,
+													onChanged: () => props.onBoardNotesChanged?.()
+												})
+											]
+										}, b.id))
+									]
+								}),
+								tab === "notes" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+									className: "settings-section",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.notes }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "hint",
+											children: S.notesHint
+										}),
+										notes && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "dir-line",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "dir-path",
+														title: notes.dir,
+														children: notes.dir
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+														className: "mini-btn",
+														onClick: () => run(() => window.api.openPath(notes.dir)),
+														children: S.notesOpen
+													})
+												]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "hint",
+												children: S.notesCount(notes.count)
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "modal-actions",
+												children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "btn",
+													onClick: () => run(async () => {
+														await window.api.notesChooseDir();
+														props.onNotesMoved?.();
+														await reload();
+													}),
+													children: S.notesChange
+												})
+											})
+										] })
+									]
+								}),
+								tab === "updates" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+									className: "settings-section",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.updates }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "agent-row",
+											children: [
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													className: "agent-main",
+													children: upd ? upd.error ? S.upd.failed(upd.error) : upd.available ? S.upd.availableTitle(upd.latest.version) : S.upd.current(upd.current) : S.upd.checking
+												}),
+												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "mini-btn",
+													disabled: updBusy,
+													onClick: checkUpdates,
+													children: updBusy ? S.upd.checking : S.upd.check
+												}),
+												upd?.available && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+													className: "btn primary",
+													onClick: () => props.onUpdate({ version: upd.latest.version, notes: upd.latest.notes ?? "" }),
+													children: S.upd.apply
+												})
+											]
+										})
+									]
+								}),
+								error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "error",
+									children: error
+								})
+							]
+						})
+					]
+				})
+			]
 		})
 	});
-}
-//#endregion
+}//#endregion
 //#region src/renderer/SearchPalette.tsx
 /**
 * Поиск по всем доскам (ТЗ 7): палитра по значку лупы или Ctrl+F / Ctrl+K.
@@ -39492,7 +39640,9 @@ async function takeShots(scene, g, hooks) {
 	await window.api.capture("trash");
 	hooks.closeTrash();
 	hooks.openSettings();
-	await wait(600);
+	await wait(500);
+	[...document.querySelectorAll(".settings-nav button")].find((b) => b.textContent.includes("Обновления"))?.click();
+	await wait(300);
 	await window.api.capture("settings");
 	{
 		const hasUpd = [...document.querySelectorAll(".settings-section h3")].some((h) => h.textContent === "Обновления");
