@@ -36587,8 +36587,8 @@ function SettingsDialog(props) {
 		{ id: "notes", label: S.nav.notes, Icon: FileText },
 		{ id: "updates", label: S.nav.updates, Icon: RefreshCw }
 	];
-	const chip = (a) => a.status === "connected" ? a.installed ? "ok" : "warn" : a.status === "outdated" ? "warn" : "off";
-	const chipText = (a) => a.status === "connected" ? a.installed ? S.status.connected : S.status.provisioned : a.status === "outdated" ? S.status.outdated : S.status.missing;
+	const chip = (a) => a.status === "connected" ? "ok" : a.status === "outdated" ? "warn" : "off";
+	const chipText = (a) => a.status === "connected" ? S.status.connected : a.status === "outdated" ? S.status.outdated : S.status.missing;
 	const field = (label, key, type = "text") => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 		className: "field",
 		children: [
@@ -36728,62 +36728,79 @@ function SettingsDialog(props) {
 											children: S.agentsHint
 										}),
 										(info?.agents ?? []).map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "agent-card",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bot, {
-													size: 18,
-													className: "muted"
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "agent-main",
-													children: [
-														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-															className: "agent-name-row",
-															children: [
-																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																	className: "agent-name",
-																	children: a.name
-																}),
-																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																	className: `status-chip ${chip(a)}`,
-																	children: [
-																		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot" }),
-																		" ",
-																		chipText(a)
-																	]
-																})
-															]
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-															className: "agent-file",
-															title: a.file,
-															children: a.file
-														})
-													]
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													className: a.status === "connected" ? "mini-btn" : "btn primary",
-													onClick: () => run(async () => {
-														await window.api.connectAgent(a.kind);
+										className: "agent-card",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bot, {
+												size: 18,
+												className: "muted"
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "agent-main",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "agent-name-row",
+														children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "agent-name",
+																children: a.name
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: `status-chip ${chip(a)}`,
+																children: [
+																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot" }),
+																	" ",
+																	chipText(a)
+																]
+															})
+														]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "agent-file",
+														title: a.file,
+														children: a.file
+													}),
+													a.file !== a.standard && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "agent-file",
+														title: a.standard,
+														children: `Обычное место: ${a.standard}`
+													})
+												]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												className: a.status === "connected" ? "mini-btn" : "btn primary",
+												onClick: () => run(async () => {
+													const r = await window.api.agentPickConfig(a.kind);
+													if (r?.ok) {
 														await reload();
 														toast(S.connected(a.name));
-													}),
-													children: a.status === "connected" ? S.reconnect : a.status === "outdated" ? S.reconnect : S.connect
+													}
 												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													className: "mini-btn",
-													title: S.copyJson,
-													onClick: () => copy(a.snippet),
-													children: S.copyJson
+												children: a.status === "connected" ? S.pickAnother : S.pickFile
+											}),
+											a.status !== "missing" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												className: "mini-btn",
+												title: S.rewriteTitle,
+												onClick: () => run(async () => {
+													await window.api.agentRewrite(a.kind);
+													await reload();
+													toast(S.connected(a.name));
 												}),
-												a.kind === "claude" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													className: "mini-btn",
-													title: S.copyCli,
-													onClick: () => copy(info.claudeCli),
-													children: S.copyCli
-												})
-											]
-										}, a.kind))
+												children: S.rewrite
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												className: "mini-btn",
+												title: S.copyJson,
+												onClick: () => copy(a.snippet),
+												children: S.copyJson
+											}),
+											a.kind === "claude" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												className: "mini-btn",
+												title: S.copyCli,
+												onClick: () => copy(info.claudeCli),
+												children: S.copyCli
+											})
+										]
+									}, a.kind))
 									]
 								}),
 								tab === "boards" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {

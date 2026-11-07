@@ -14453,13 +14453,16 @@ var ru = {
 			notes: "Заметки",
 			updates: "Обновления"
 		},
-		agentsHint: "MCP-сервер ariadne-board: доски и заметки прямо в агенте.",
+		agentsHint: "Выберите файл конфигурации агента — Ariadne допишет в него MCP-сервер ariadne-board. Имя файла указано под названием агента.",
 		status: {
 			connected: "Подключено",
-			provisioned: "Прописано — агент не установлен",
 			outdated: "Путь устарел",
 			missing: "Не подключено"
 		},
+		pickFile: "Выбрать файл…",
+		pickAnother: "Другой файл…",
+		rewrite: "Перезаписать",
+		rewriteTitle: "Записать текущие пути в этот же файл",
 		connect: "Подключить",
 		reconnect: "Обновить путь",
 		copyJson: "JSON",

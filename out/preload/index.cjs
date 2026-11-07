@@ -37,6 +37,8 @@ var api = Object.fromEntries([
 	"openExternal",
 	"agentsInfo",
 	"connectAgent",
+	"agentPickConfig",
+	"agentRewrite",
 	"chooseProjectDir",
 	"clearProjectDir",
 	"writeInstructions",

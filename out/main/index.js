@@ -2752,10 +2752,9 @@ function entriesOf(kind, cfg) {
 	if (kind === "opencode") return cfg.mcp;
 	return cfg.mcp?.servers;
 }
-/** connected — прописан с этой командой; outdated — прописан, но путь другой (папку перенесли); missing — нет. */
-function agentStatus(kind, home, spec) {
+/** connected — в активном файле прописана текущая команда; outdated — прописана другая; missing — нет. */
+function agentStatusFile(kind, file, spec) {
 	if (kind === "codex") {
-		const file = configPath(kind, home);
 		if (!existsSync(file)) return {
 			status: "missing",
 			file
@@ -2770,7 +2769,6 @@ function agentStatus(kind, home, spec) {
 			file
 		};
 	}
-	const file = configPath(kind, home);
 	let cfg;
 	try {
 		cfg = readJson(file);
@@ -2799,9 +2797,8 @@ function agentStatus(kind, home, spec) {
 * Прописать сервер в конфиг агента, сохранив всё остальное. Перед записью — копия *.ariadne-backup,
 * запись через временный файл (Claude Code держит ~/.claude.json открытым и сам его переписывает).
 */
-function connectAgent(kind, home, spec) {
+function connectAgentFile(kind, file, spec) {
 	if (kind === "codex") {
-		const file = configPath(kind, home);
 		mkdirSync(dirname(file), { recursive: true });
 		let text = existsSync(file) ? readFileSync(file, "utf8") : "";
 		const backup = existsSync(file) ? file + ".ariadne-backup" : null;
@@ -2818,7 +2815,6 @@ function connectAgent(kind, home, spec) {
 			backup
 		};
 	}
-	const file = configPath(kind, home);
 	const cfg = readJson(file);
 	if (kind === "claude") cfg.mcpServers = {
 		...cfg.mcpServers,
@@ -2853,21 +2849,9 @@ function connectAgent(kind, home, spec) {
 		backup
 	};
 }
-var CLI_NAMES = {
-	claude: "claude",
-	opencode: "opencode",
-	codex: "codex",
-	zcode: "zcode"
-};
-/** Установлен ли CLI агента на этом ПК (поиск в PATH). */
-var cliInstalled = (kind) => {
-	try {
-		execFileSync("where", [CLI_NAMES[kind]], { stdio: "ignore", windowsHide: true });
-		return true;
-	} catch {
-		return false;
-	}
-};
+function connectAgent(kind, home, spec) {
+	return connectAgentFile(kind, configPath(kind, home), spec);
+}
 var START = "<!-- ariadne:start -->";
 var END = "<!-- ariadne:end -->";
 var renderSnippet = (template, boardName) => template.replaceAll("{{BOARD_NAME}}", boardName).trim();
@@ -3567,13 +3551,16 @@ var Agents = class {
 			serverExists: existsSync(this.spec("claude").args[0]),
 			claudeCli: claudeCliCommand(this.spec("claude")),
 			agents: KINDS.map((kind) => {
-				const st = agentStatus(kind, home, this.spec(kind));
+				const standard = configPath(kind, home);
+				const custom = this.db.prepare(`SELECT value FROM meta WHERE key = ?`).get(`agent_file_${kind}`)?.value;
+				const active = custom || standard;
+				const st = agentStatusFile(kind, active, this.spec(kind));
 				return {
 					kind,
 					name: AGENT_NAMES[kind],
 					status: st.status,
-					installed: cliInstalled(kind),
-					file: st.file,
+					file: active,
+					standard,
 					snippet: manualSnippet(kind, this.spec(kind))
 				};
 			})
@@ -4349,6 +4336,28 @@ function registerIpc(ctx) {
 		},
 		agentsInfo: () => agents.info(),
 		connectAgent: (kind) => agents.connect(kind),
+		agentPickConfig: async (kind) => {
+			const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+			const r = await dialog.showOpenDialog(win, {
+				title: `Файл конфигурации ${AGENT_NAMES[kind] ?? "агента"}`,
+				properties: ["openFile"],
+				filters: [
+					{ name: kind === "codex" ? "TOML" : "JSON", extensions: kind === "codex" ? ["toml"] : ["json"] },
+					{ name: "Все файлы", extensions: ["*"] }
+				]
+			});
+			if (r.canceled || !r.filePaths[0]) return null;
+			const file = r.filePaths[0];
+			connectAgentFile(kind, file, agents.spec(kind));
+			setSyncMeta(db, { [`agent_file_${kind}`]: file });
+			return { ok: true, file };
+		},
+		agentRewrite: (kind) => {
+			const custom = db.prepare(`SELECT value FROM meta WHERE key = ?`).get(`agent_file_${kind}`)?.value;
+			const file = custom || configPath(kind, homedir());
+			connectAgentFile(kind, file, agents.spec(kind));
+			return { ok: true, file };
+		},
 		chooseProjectDir: (boardId) => agents.chooseProjectDir(boardId),
 		clearProjectDir: (boardId) => agents.clearProjectDir(boardId),
 		writeInstructions: (boardId, list) => agents.writeInstructions(boardId, list),
