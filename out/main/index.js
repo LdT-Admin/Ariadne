@@ -123,6 +123,8 @@ var MIGRATIONS = [`
   `, `
   ALTER TABLE blocks ADD COLUMN w INTEGER;
   ALTER TABLE blocks ADD COLUMN h INTEGER;
+  `, `
+  DELETE FROM meta WHERE key = 'vault';
   `];
 //#endregion
 //#region src/shared/db/open.ts
@@ -2827,128 +2829,7 @@ function purgeTrash(db) {
 	});
 }
 //#endregion
-//#region src/shared/vault.ts
-/** 64 МБ, 3 прохода — порядка секунды на обычном ноутбуке: перебор пароля дорог. */
-var DEFAULT_KDF = {
-	m: 65536,
-	t: 3,
-	p: 1
-};
-async function kek(password, salt, kdf) {
-	const out = await argon2id({
-		password: password.normalize("NFC"),
-		salt,
-		iterations: kdf.t,
-		parallelism: kdf.p,
-		memorySize: kdf.m,
-		hashLength: 32,
-		outputType: "binary"
-	});
-	return Buffer.from(out);
-}
-function seal(key, plain) {
-	const iv = randomBytes(12);
-	const c = createCipheriv("aes-256-gcm", key, iv);
-	const ct = Buffer.concat([c.update(plain), c.final()]);
-	return Buffer.concat([
-		iv,
-		c.getAuthTag(),
-		ct
-	]);
-}
-function open(key, box) {
-	const d = createDecipheriv("aes-256-gcm", key, box.subarray(0, 12));
-	d.setAuthTag(box.subarray(12, 28));
-	return Buffer.concat([d.update(box.subarray(28)), d.final()]);
-}
-var Vault = class {
-	db;
-	kdf;
-	dek = null;
-	constructor(db, kdf = DEFAULT_KDF) {
-		this.db = db;
-		this.kdf = kdf;
-	}
-	meta() {
-		const row = this.db.prepare(`SELECT value FROM meta WHERE key = 'vault'`).get();
-		return row ? JSON.parse(row.value) : null;
-	}
-	status() {
-		return this.dek ? "unlocked" : this.meta() ? "locked" : "none";
-	}
-	/** Первый запуск: задать мастер-пароль. Восстановить его нельзя — интерфейс предупреждает. */
-	async setup(password) {
-		if (this.meta()) throw new Error("Мастер-пароль уже задан");
-		checkStrength(password);
-		const salt = randomBytes(16);
-		const dek = randomBytes(32);
-		const box = seal(await kek(password, salt, this.kdf), dek);
-		const meta = {
-			v: 1,
-			salt: salt.toString("base64"),
-			kdf: this.kdf,
-			dek: box.toString("base64")
-		};
-		write(this.db, () => this.db.prepare(`INSERT INTO meta (key, value) VALUES ('vault', ?)`).run(JSON.stringify(meta)));
-		this.dek = dek;
-	}
-	/** Неверный пароль — false (GCM не сходится), без подробностей. */
-	async unlock(password) {
-		const m = this.meta();
-		if (!m) throw new Error("Мастер-пароль ещё не задан");
-		try {
-			this.dek = open(await kek(password, Buffer.from(m.salt, "base64"), m.kdf), Buffer.from(m.dek, "base64"));
-			return true;
-		} catch {
-			return false;
-		}
-	}
-	lock() {
-		this.dek?.fill(0);
-		this.dek = null;
-	}
-	/** Смена пароля: проверяем старый, перешифровываем только DEK новой солью. */
-	async changePassword(oldPassword, newPassword) {
-		const m = this.meta();
-		if (!m) throw new Error("Мастер-пароль ещё не задан");
-		checkStrength(newPassword);
-		let dek;
-		try {
-			dek = open(await kek(oldPassword, Buffer.from(m.salt, "base64"), m.kdf), Buffer.from(m.dek, "base64"));
-		} catch {
-			throw new Error("Текущий пароль неверен");
-		}
-		const salt = randomBytes(16);
-		const box = seal(await kek(newPassword, salt, this.kdf), dek);
-		const next = {
-			v: 1,
-			salt: salt.toString("base64"),
-			kdf: this.kdf,
-			dek: box.toString("base64")
-		};
-		write(this.db, () => this.db.prepare(`UPDATE meta SET value = ? WHERE key = 'vault'`).run(JSON.stringify(next)));
-		this.dek = dek;
-	}
-	requireDek() {
-		if (!this.dek) throw new Error("Защищённые поля заблокированы — введите мастер-пароль");
-		return this.dek;
-	}
-	getSecret(blockId) {
-		const row = this.db.prepare(`SELECT secret_enc AS s FROM blocks WHERE id = ?`).get(blockId);
-		if (!row?.s) return "";
-		return open(this.requireDek(), Buffer.from(row.s)).toString("utf8");
-	}
-	/** Пустая строка — поле очищается (NULL). */
-	setSecret(blockId, text) {
-		const dek = this.requireDek();
-		const value = text ? seal(dek, Buffer.from(text, "utf8")) : null;
-		write(this.db, () => this.db.prepare(`UPDATE blocks SET secret_enc = ?, updated_at = ? WHERE id = ?`).run(value, Date.now(), blockId));
-	}
-};
-function checkStrength(password) {
-	if (password.length < 8) throw new Error("Пароль — не короче 8 символов");
-}
-//#endregion
+
 //#region src/shared/dev/loadtest.ts
 var WORDS = [
 	"CRM",
@@ -3660,7 +3541,6 @@ function registerIpc(ctx) {
 	const { db } = ctx;
 	const files = new Attachments(db, ctx.dataDir);
 	const agents = new Agents(db, ctx.dataDir);
-	const vault = new Vault(db);
 	const S = (dir) => ctx.notes.storeFor(dir);
 	let sender = null;
 	const test = () => {
@@ -3994,13 +3874,6 @@ function registerIpc(ctx) {
 			if (!ctx.flags.shots) throw new Error("Только в режиме проверки");
 			return ctx.notes.moveTo(dir);
 		},
-		vaultStatus: () => vault.status(),
-		vaultSetup: (password) => vault.setup(password),
-		vaultUnlock: (password) => vault.unlock(password),
-		vaultLock: () => vault.lock(),
-		vaultChangePassword: (oldPassword, newPassword) => vault.changePassword(oldPassword, newPassword),
-		getSecret: (blockId) => vault.getSecret(blockId),
-		setSecret: (blockId, text) => vault.setSecret(blockId, text),
 		listTrash: () => listTrash(db),
 		purgeTrash: () => {
 			for (const f of purgeTrash(db)) rmSync(join(ctx.dataDir, "attachments", f.boardId, f.path), { force: true });

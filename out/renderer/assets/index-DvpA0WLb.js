@@ -35194,270 +35194,7 @@ var pct = (arr, p) => {
 //#region assets/branding/logo-mark.svg?url
 var logo_mark_default = "data:image/svg+xml,%3csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20200%20200'%20width='200'%20height='200'%3e%3ctitle%3eAriadne%20—%20знак%3c/title%3e%3cg%20fill='%23ffffff'%20fill-opacity='0.32'%3e%3ccircle%20cx='40'%20cy='40'%20r='8'/%3e%3ccircle%20cx='160'%20cy='100'%20r='8'/%3e%3ccircle%20cx='100'%20cy='160'%20r='8'/%3e%3ccircle%20cx='160'%20cy='160'%20r='8'/%3e%3c/g%3e%3cpolyline%20points='40%20160%2040%20100%20100%20100%20100%2040%20160%2040'%20fill='none'%20stroke='%23ffffff'%20stroke-width='7'%20stroke-linecap='round'%20stroke-linejoin='round'/%3e%3cg%20fill='%23ffffff'%3e%3ccircle%20cx='40'%20cy='160'%20r='13'/%3e%3ccircle%20cx='40'%20cy='100'%20r='13'/%3e%3ccircle%20cx='100'%20cy='100'%20r='13'/%3e%3ccircle%20cx='100'%20cy='40'%20r='13'/%3e%3ccircle%20cx='160'%20cy='40'%20r='13'/%3e%3c/g%3e%3c/svg%3e";
 //#endregion
-//#region src/renderer/Vault.tsx
-var V = t.vault;
-var clean = (e) => String(e.message).replace(/^Error invoking remote method 'db': (Error: )?/, "");
-/** Экран мастер-пароля при запуске (ТЗ 9): создать при первом запуске, ввести — при каждом следующем. Можно отложить. */
-function VaultGate(props) {
-	const [pw, setPw] = (0, import_react.useState)("");
-	const [pw2, setPw2] = (0, import_react.useState)("");
-	const [error, setError] = (0, import_react.useState)("");
-	const [busy, setBusy] = (0, import_react.useState)(false);
-	const input = (0, import_react.useRef)(null);
-	const setup = props.status === "none";
-	(0, import_react.useEffect)(() => input.current?.focus(), []);
-	const submit = async () => {
-		setError("");
-		if (setup && pw !== pw2) return setError(V.mismatch);
-		setBusy(true);
-		try {
-			if (setup) {
-				await window.api.vaultSetup(pw);
-				props.onDone("unlocked");
-			} else if (await window.api.vaultUnlock(pw)) props.onDone("unlocked");
-			else {
-				setError(V.wrong);
-				setPw("");
-				input.current?.focus();
-			}
-		} catch (e) {
-			setError(clean(e));
-		} finally {
-			setBusy(false);
-		}
-	};
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "modal-backdrop vault-backdrop",
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
-			className: "modal vault-modal",
-			onSubmit: (e) => {
-				e.preventDefault();
-				submit();
-			},
-			onKeyDown: (e) => e.key === "Escape" && (e.stopPropagation(), props.onDone(props.status)),
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
-					src: logo_mark_default,
-					alt: "",
-					width: 36,
-					height: 36
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: setup ? V.setupTitle : V.unlockTitle }),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "hint",
-					children: setup ? V.setupText : V.unlockText
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-					ref: input,
-					type: "password",
-					className: "input",
-					placeholder: V.password,
-					value: pw,
-					onChange: (e) => setPw(e.target.value),
-					autoComplete: "off"
-				}),
-				setup && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-					type: "password",
-					className: "input",
-					placeholder: V.repeat,
-					value: pw2,
-					onChange: (e) => setPw2(e.target.value),
-					autoComplete: "off"
-				}),
-				setup && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "vault-warning",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldAlert, { size: 14 }),
-						" ",
-						V.setupWarning
-					]
-				}),
-				error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "error",
-					children: error
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "form-buttons",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: "btn",
-						onClick: () => props.onDone(props.status),
-						children: setup ? V.later : V.skip
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "submit",
-						className: "btn primary",
-						disabled: busy || !pw,
-						children: busy ? V.checking : setup ? V.create : V.open
-					})]
-				})
-			]
-		})
-	});
-}
-/** Защищённое поле в боковой панели: скрыто по умолчанию, расшифровывается в main только по запросу. */
-function SecretField(props) {
-	const [value, setValue] = (0, import_react.useState)(null);
-	const [draft, setDraft] = (0, import_react.useState)("");
-	const [shown, setShown] = (0, import_react.useState)(false);
-	const [editing, setEditing] = (0, import_react.useState)(false);
-	(0, import_react.useEffect)(() => {
-		setShown(false);
-		setEditing(false);
-		if (props.status !== "unlocked") return setValue(null);
-		window.api.getSecret(props.blockId).then((v) => (setValue(v), setDraft(v)), () => setValue(null));
-	}, [props.blockId, props.status]);
-	const save = async () => {
-		setEditing(false);
-		if (draft === value) return;
-		try {
-			await window.api.setSecret(props.blockId, draft);
-			setValue(draft);
-			props.onChanged();
-		} catch (e) {
-			toast(clean(e));
-		}
-	};
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Section, {
-		title: V.field,
-		extra: props.status === "unlocked" && value ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-			className: "mini-btn",
-			onClick: () => setShown(!shown),
-			children: [
-				shown ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EyeOff, { size: 12 }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { size: 12 }),
-				" ",
-				shown ? V.hide : V.show
-			]
-		}) : void 0,
-		children: [props.status !== "unlocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-			className: "placeholder-btn secret-locked",
-			onClick: props.onNeedUnlock,
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { size: 13 }),
-				" ",
-				props.status === "none" ? V.notSet : V.locked,
-				" — ",
-				props.status === "none" ? V.setupButton : V.unlockButton
-			]
-		}) : editing || !value ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AutoTextarea, {
-			className: "textarea mono",
-			minRows: 2,
-			value: draft,
-			placeholder: V.placeholder,
-			onFocus: () => setEditing(true),
-			onChange: (e) => setDraft(e.target.value),
-			onBlur: save,
-			onKeyDown: (e) => {
-				if (e.key === "Escape") {
-					e.stopPropagation();
-					setDraft(value ?? "");
-					e.target.blur();
-				}
-			}
-		}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-			className: "secret-value",
-			onClick: () => (setShown(true), setEditing(true)),
-			children: shown ? value : "•".repeat(Math.min(24, Math.max(8, value.length)))
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "hint",
-			children: V.fieldHint
-		})]
-	});
-}
-/** Раздел «Мастер-пароль» в настройках: статус, заблокировать, сменить пароль. */
-function VaultSettings(props) {
-	const [changing, setChanging] = (0, import_react.useState)(false);
-	const [oldPw, setOldPw] = (0, import_react.useState)("");
-	const [newPw, setNewPw] = (0, import_react.useState)("");
-	const [error, setError] = (0, import_react.useState)("");
-	const statusText = props.status === "none" ? V.statusNone : props.status === "locked" ? V.statusLocked : V.statusUnlocked;
-	const change = async () => {
-		setError("");
-		try {
-			await window.api.vaultChangePassword(oldPw, newPw);
-			setChanging(false);
-			setOldPw("");
-			setNewPw("");
-			props.onStatus("unlocked");
-			toast(V.changed);
-		} catch (e) {
-			setError(clean(e));
-		}
-	};
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-		className: "settings-section",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: V.settingsTitle }),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "agent-row",
-				children: [
-					props.status === "unlocked" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LockOpen, {
-						size: 18,
-						className: "muted"
-					}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, {
-						size: 18,
-						className: "muted"
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "agent-main",
-						children: statusText
-					}),
-					props.status === "unlocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						className: "mini-btn",
-						onClick: async () => (await window.api.vaultLock(), props.onStatus("locked")),
-						children: V.lockNow
-					}),
-					props.status !== "none" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						className: "mini-btn",
-						onClick: () => setChanging(!changing),
-						children: V.change
-					}),
-					props.status !== "unlocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						className: "btn primary",
-						onClick: props.onOpenGate,
-						children: props.status === "none" ? V.setupButton : V.unlockButton
-					})
-				]
-			}),
-			changing && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "inline-form",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-						type: "password",
-						className: "input",
-						placeholder: V.current,
-						value: oldPw,
-						onChange: (e) => setOldPw(e.target.value)
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-						type: "password",
-						className: "input",
-						placeholder: V.newPassword,
-						value: newPw,
-						onChange: (e) => setNewPw(e.target.value)
-					}),
-					error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "error",
-						children: error
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "form-buttons",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							className: "btn",
-							onClick: () => setChanging(false),
-							children: t.panel.cancel
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							className: "btn primary",
-							disabled: !oldPw || !newPw,
-							onClick: change,
-							children: V.change
-						})]
-					})
-				]
-			})
-		]
-	});
-}
-//#endregion
+
 //#region src/renderer/panel/BlockPanel.tsx
 /**
 * Боковая панель выбранного блока (ТЗ 6). Данные — getBlockDetails; перечитываются при смене блока,
@@ -35654,12 +35391,6 @@ function BlockPanel(props) {
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Comments, {
 					blockId: b.id,
 					items: d.comments,
-					onChanged: reload
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SecretField, {
-					blockId: b.id,
-					status: props.vaultStatus,
-					onNeedUnlock: props.onNeedUnlock,
 					onChanged: reload
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -36660,11 +36391,6 @@ function SettingsDialog(props) {
 						})
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotesSettings, { onMoved: props.onNotesMoved }),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(VaultSettings, {
-						status: props.vaultStatus,
-						onStatus: props.onVaultStatus,
-						onOpenGate: props.onOpenVaultGate
-					}),
 					error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "error",
 						children: error
@@ -38562,8 +38288,6 @@ function App() {
 	const [resizeMode, setResizeMode] = (0, import_react.useState)(false);
 	const [filter, setFilter] = (0, import_react.useState)(EMPTY_FILTER);
 	const [minimapOpen, setMinimapOpen] = (0, import_react.useState)(false);
-	const [vaultStatus, setVaultStatus] = (0, import_react.useState)("locked");
-	const [gateOpen, setGateOpen] = (0, import_react.useState)(false);
 	const [section, setSection] = (0, import_react.useState)(savedSection);
 	const sectionRef = (0, import_react.useRef)(section);
 	sectionRef.current = section;
@@ -38601,9 +38325,6 @@ function App() {
 		window.api.launchFlags().then(async (fl) => {
 			setFlags(fl);
 			if (fl.bench) setSection("boards");
-			const st = await window.api.vaultStatus();
-			setVaultStatus(st);
-			if (st !== "unlocked" && !fl.bench) setGateOpen(true);
 		});
 	}, [reloadBoards, reloadTrash]);
 	(0, import_react.useEffect)(() => {
@@ -38823,8 +38544,6 @@ function App() {
 					openSettings: () => setSettingsOpen(true),
 					closeSettings: () => setSettingsOpen(false),
 					setResizeMode,
-					setVaultStatus,
-					openVaultGate: () => setGateOpen(true),
 					selectBoard: (id) => (activeRef.current = id, selectBoard(id))
 				});
 				return window.api.reportBench({ shots: flags.shots });
@@ -39095,9 +38814,7 @@ function App() {
 							graph,
 							onClose: () => scene?.select(null),
 							onFocus: (id) => scene?.focusBlock(id),
-							onGraphChanged: reloadGraph,
-							vaultStatus,
-							onNeedUnlock: () => setGateOpen(true)
+							onGraphChanged: reloadGraph
 						}),
 						flags.dev && devStats && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "dev-stats",
@@ -39185,18 +38902,8 @@ function App() {
 				onClose: () => setSettingsOpen(false),
 				onBoardsChanged: reloadBoards,
 				onNotesMoved: () => setNotesReloadKey((k) => k + 1),
-				onBoardNotesChanged: () => setBoardNotesKey((k) => k + 1),
-				vaultStatus,
-				onVaultStatus: setVaultStatus,
-				onOpenVaultGate: () => setGateOpen(true)
-			}),
-			gateOpen && vaultStatus !== "unlocked" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(VaultGate, {
-				status: vaultStatus,
-				onDone: (st) => {
-					setVaultStatus(st);
-					setGateOpen(false);
-				}
-			})
+				onBoardNotesChanged: () => setBoardNotesKey((k) => k + 1)
+				})
 		]
 	});
 }
@@ -39503,27 +39210,6 @@ async function takeShots(scene, g, hooks) {
 	for (const [name, ok] of checks.slice(-3)) console.log(`check: layout ${ok ? "OK" : "FAILED"} — ${name}`);
 	hooks.selectBoard(g.boardId);
 	await wait(800);
-	await window.api.vaultSetup("тестовый пароль 1");
-	hooks.setVaultStatus("unlocked");
-	await window.api.setSecret(target.id, "root / S3cret-Pass · 10.0.0.7");
-	scene.setGraph(await window.api.getGraph(g.boardId));
-	scene.focusBlock(target.id);
-	await wait(600);
-	document.querySelector(".panel-body").scrollTop = 1e6;
-	await wait(300);
-	const secretShown = document.querySelector(".secret-value")?.textContent ?? "";
-	check("секрет: в панели скрыт точками", secretShown.startsWith("•") && !secretShown.includes("S3cret"));
-	check("секрет: не попадает в данные холста", !JSON.stringify(await window.api.getGraph(g.boardId)).includes("S3cret"));
-	await window.api.capture("secret-field");
-	await window.api.vaultLock();
-	hooks.setVaultStatus("locked");
-	hooks.openVaultGate();
-	await wait(400);
-	await window.api.capture("vault-gate");
-	check("мастер-пароль: неверный отклонён", !await window.api.vaultUnlock("неверный"));
-	check("мастер-пароль: верный открывает", await window.api.vaultUnlock("тестовый пароль 1"));
-	hooks.setVaultStatus("unlocked");
-	for (const [name, ok] of checks.slice(-4)) console.log(`check: vault ${ok ? "OK" : "FAILED"} — ${name}`);
 	await notesScenario();
 	scene.select(null);
 	scene.fitView();
