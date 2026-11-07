@@ -256,6 +256,33 @@ var __iconData$24f = {
 __iconData$24f.node;
 var Folder = createLucideIcon(__iconData$24f);
 //#endregion
+//#region node_modules/lucide-react/dist/esm/icons/file-plus-2.mjs
+/**
+* @license lucide-react v1.59.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var __iconData$24p = {
+	name: "file-plus-2",
+	size: 24,
+	node: [["path", {
+		d: "M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4",
+		key: "k24p1"
+	}], ["path", {
+		d: "M14 2v4a2 2 0 0 0 2 2h4",
+		key: "k24p2"
+	}], ["path", {
+		d: "M12 18v-6",
+		key: "k24p3"
+	}], ["path", {
+		d: "m9 15 3 3 3-3",
+		key: "k24p4"
+	}]]
+};
+__iconData$24p.node;
+var FilePlus2 = createLucideIcon(__iconData$24p);
+//#endregion
 //#region node_modules/lucide-react/dist/esm/icons/users.mjs
 /**
 * @license lucide-react v1.59.0 - ISC
@@ -37893,7 +37920,7 @@ function NotesSidebar(props) {
 		}, r.key);
 	};
 	const item = (icon, label, run, opts = {}) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-		className: "type-menu-item" + (opts.danger ? " danger" : "") + (opts.sub && noteMenu?.sub ? " cursor" : ""),
+		className: "type-menu-item" + (opts.danger ? " danger" : "") + (opts.subKey && noteMenu?.sub === opts.subKey ? " cursor" : ""),
 		disabled: opts.disabled,
 		title: opts.title,
 		onMouseEnter: () => noteMenu && !opts.sub && noteMenu.sub && !noteMenu.newGroup && setMenu({
@@ -37928,27 +37955,22 @@ function NotesSidebar(props) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "notes-actions",
 				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						className: "sidebar-item",
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						className: "icon-btn",
+						title: N.newNote,
 						onClick: props.onNew,
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SquarePen, { size: 16 }),
-							" ",
-							N.newNote
-						]
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilePlus2, { size: 16 })
 					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						className: "sidebar-item",
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						className: "icon-btn",
+						title: N.newFolder,
 						onClick: async () => {
 							const id = await props.onNewFolder("");
 							if (id) setRenaming(`f:${id}`);
 						},
-						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderPlus, { size: 16 }),
-							" ",
-							N.newFolder
-						]
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderPlus, { size: 16 })
 					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						className: "icon-btn" + (searchOpen ? " on" : ""),
 						title: N.search,
@@ -38059,7 +38081,7 @@ function NotesSidebar(props) {
 						children: [item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderInput, { size: 14 }), MN.moveToGroup, () => setMenu({
 							...noteMenu,
 							sub: noteMenu.sub === "group" ? false : "group"
-						}), { sub: true }), noteMenu.sub === "group" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						}), { sub: true, subKey: "group" }), noteMenu.sub === "group" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							ref: (el) => clampSubmenuToViewport(el),
 						className: "context-menu submenu",
 							children: noteMenu.newGroup ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RenameInput, {
@@ -38118,7 +38140,7 @@ function NotesSidebar(props) {
 						children: [item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { size: 14 }), MN.moveToFolder, () => setMenu({
 							...noteMenu,
 							sub: noteMenu.sub === "folder" ? false : "folder"
-						}), { sub: true }), noteMenu.sub === "folder" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						}), { sub: true, subKey: "folder" }), noteMenu.sub === "folder" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "context-menu submenu",
 							children: noteMenu.newFolder ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RenameInput, {
 								value: "",
@@ -39645,7 +39667,7 @@ async function notesScenario() {
 		const n = await window.api.notesCreate(title);
 		await window.api.notesWrite(n.name, body);
 	}
-	clickText(".sidebar-item", "Новая заметка");
+	document.querySelector('.notes-actions .icon-btn[title="Новая заметка"]')?.click();
 	await wait(700);
 	typeInto("Созвон с заказчиком\n\nПочта: client@example.com");
 	await wait(900);
@@ -40139,7 +40161,7 @@ async function notesScenario() {
 	await wait(400);
 	fo2 = await window.api.notesOrg();
 	check("Ч8: папку удалили — заметки вернулись в корень", fo2.folders.length === 0 && !fo2.groups.find((g) => g.name === "Серверы")?.notes.includes("Таблица итоги") && !row("Таблица итоги")?.className.includes("in-group"));
-	document.querySelector(".notes-actions .icon-btn")?.click();
+	document.querySelector('.notes-actions .icon-btn[title*="Поиск"]')?.click();
 	await wait(200);
 	const si = document.querySelector(".notes-search input");
 	setInput.call(si, "manager");

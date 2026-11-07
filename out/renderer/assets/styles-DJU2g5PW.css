@@ -643,8 +643,9 @@ pre.diff { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 8px 0; fo
 .settings-sub { margin: 18px 0 4px; font-size: 13px; font-weight: 600; }
 
 /* Организация заметок (З4): закреплённые, группы, перетаскивание, поиск, меню */
-.notes-actions { display: flex; align-items: center; gap: 2px; }
-.notes-actions .sidebar-item { flex: 1; min-width: 0; }
+.notes-actions { display: flex; align-items: center; gap: 6px; }
+.notes-actions .spacer { flex: 1; }
+.notes-actions .icon-btn { width: 30px; height: 30px; display: grid; place-items: center; padding: 0; }
 .notes-search { display: flex; align-items: center; gap: 6px; height: 32px; margin: 4px 0 2px; padding: 0 6px 0 10px; border: 1px solid var(--border); border-radius: 8px; background: #161616; color: var(--text-muted); }
 .notes-search:focus-within { border-color: #3a3a3a; }
 .notes-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font: inherit; }
