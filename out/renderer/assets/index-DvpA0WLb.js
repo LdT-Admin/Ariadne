@@ -36311,6 +36311,84 @@ function BoardNotesButton(props) {
 //#region src/renderer/SettingsDialog.tsx
 var S = t.settings;
 /** Настройки (ТЗ 8.1): подключение Claude Code / Z Code и папка проекта текущей доски. */
+/** Первый запуск без аккаунта: карточка входа (можно пропустить, останется в настройках). */
+function LoginGate(props) {
+	const A = t.settings.acc;
+	const [login, setLogin] = (0, import_react.useState)(props.login ?? "mydi");
+	const [password, setPassword] = (0, import_react.useState)("");
+	const [busy, setBusy] = (0, import_react.useState)(false);
+	const [error, setError] = (0, import_react.useState)("");
+	const signIn = async () => {
+		setBusy(true);
+		setError("");
+		try {
+			await window.api.syncLogin("http://100.68.27.113:3010", login, password);
+			props.onDone();
+		} catch (e) {
+			setError(String(e.message).replace(/^Error invoking remote method 'db': (Error: )?/, ""));
+			setBusy(false);
+		}
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "modal-backdrop update-backdrop",
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "modal update-card login-card",
+			role: "dialog",
+			"aria-label": A.gateTitle,
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: A.gateTitle }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "update-notes",
+					children: A.gateHint
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "acc-form",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							className: "input",
+							placeholder: A.login,
+							value: login,
+							autoComplete: "off",
+							onChange: (e) => setLogin(e.target.value)
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							className: "input",
+							type: "password",
+							placeholder: A.password,
+							value: password,
+							autoComplete: "off",
+							onChange: (e) => setPassword(e.target.value),
+							onKeyDown: (e) => {
+								if (e.key === "Enter" && login && password && !busy) signIn();
+							}
+						})
+					]
+				}),
+				error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "error",
+					children: error
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "form-buttons",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							className: "btn",
+							disabled: busy,
+							onClick: props.onSkip,
+							children: A.gateSkip
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							className: "btn primary",
+							disabled: busy || !login || !password,
+							onClick: signIn,
+							children: A.signIn
+						})
+					]
+				})
+			]
+		})
+	});
+}
 /** Карточка обновления: предложение по центру с затемнением, затем загрузка с прогрессом. Нить логотипа прорисовывается (LOGO.md §6). */
 function UpdateOverlay(props) {
 	const U = t.settings.upd;
@@ -38744,6 +38822,7 @@ function App() {
 	const [minimapOpen, setMinimapOpen] = (0, import_react.useState)(false);
 	const [update, setUpdate] = (0, import_react.useState)(null);
 	const [shareAsk, setShareAsk] = (0, import_react.useState)(null);
+	const [gate, setGate] = (0, import_react.useState)(null);
 	const [section, setSection] = (0, import_react.useState)(savedSection);
 	const sectionRef = (0, import_react.useRef)(section);
 	sectionRef.current = section;
@@ -38796,6 +38875,11 @@ function App() {
 		reloadTrash
 	]);
 	(0, import_react.useEffect)(() => window.api.onUpdateAvailable((info) => setUpdate(info)), []);
+	(0, import_react.useEffect)(() => {
+		window.api.syncStatus().then((s) => {
+			if (!s.configured && !flags?.bench) setGate({ login: s.login ?? "mydi" });
+		}).catch(() => {});
+	}, [flags]);
 	(0, import_react.useEffect)(() => window.api.onSyncDone((s) => {
 		if ((s.boards ?? 0) + (s.notes ?? 0) > 0 || s.reason === "manual" || s.reason === "share") toast(t.settings.acc.syncToast(s.boards ?? 0, s.notes ?? 0));
 	}), []);
@@ -39391,6 +39475,11 @@ function App() {
 				version: update.version,
 				notes: update.notes,
 				onClose: () => setUpdate(null)
+			}),
+			gate && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoginGate, {
+				login: gate.login,
+				onDone: () => setGate(null),
+				onSkip: () => setGate(null)
 			}),
 			shareAsk && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "modal-backdrop",
