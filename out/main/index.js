@@ -2660,6 +2660,8 @@ function noteAgentPrompt(name, body, boards) {
 var SERVER_NAME = "ariadne-board";
 var AGENT_NAMES = {
 	claude: "Claude Code",
+	opencode: "OpenCode",
+	codex: "Codex",
 	zcode: "Z Code"
 };
 /** Команда запуска MCP: тот же exe в режиме Node — на чужом ПК Node не нужен. */
@@ -2680,26 +2682,60 @@ function launchSpec(exe, serverJs, kind, extraEnv = {}) {
 /**
 * Где агент хранит пользовательские MCP-серверы:
 * - Claude Code: ~/.claude.json → mcpServers (уровень пользователя, для всех проектов);
-* - Z Code: ~/.zcode/cli/config.json → mcp.servers (https://zcode.z.ai/en/docs/mcp-services).
+* - OpenCode: ~/.config/opencode/opencode.json → mcp.<имя>;
+* - Codex: ~/.codex/config.toml → [mcp_servers.<имя>] (TOML-блок между маркерами ariadne);
+* - Z Code: ~/.zcode/cli/config.json → mcp.servers.
 */
-var configPath = (kind, home) => kind === "claude" ? join(home, ".claude.json") : join(home, ".zcode", "cli", "config.json");
+var configPath = (kind, home) => kind === "claude" ? join(home, ".claude.json") : kind === "opencode" ? join(home, ".config", "opencode", "opencode.json") : kind === "codex" ? join(home, ".codex", "config.toml") : join(home, ".zcode", "cli", "config.json");
 function configEntry(kind, spec) {
-	return kind === "claude" ? {
+	if (kind === "claude") return {
 		type: "stdio",
 		...spec
-	} : {
+	};
+	if (kind === "opencode") return {
+		type: "local",
+		command: [spec.command, ...spec.args],
+		environment: spec.env,
+		enabled: true
+	};
+	return {
 		...spec,
 		enable: true
 	};
 }
 /** Готовый фрагмент для ручной вставки (если автоматическая запись невозможна). */
 function manualSnippet(kind, spec) {
+	if (kind === "codex") return codexBlock(spec);
 	const entry = { [SERVER_NAME]: configEntry(kind, spec) };
-	return JSON.stringify(kind === "claude" ? { mcpServers: entry } : { mcp: { servers: entry } }, null, 2);
+	return JSON.stringify(kind === "claude" ? { mcpServers: entry } : kind === "zcode" ? { mcp: { servers: entry } } : { mcp: entry }, null, 2);
 }
 /** Команда для терминала: `claude mcp add-json` (кавычки — для PowerShell). */
 function claudeCliCommand(spec) {
 	return `claude mcp add-json ${SERVER_NAME} '${JSON.stringify(configEntry("claude", spec)).replace(/'/g, "''")}' --scope user`;
+}
+var TOML_START = "# ariadne:start";
+var TOML_END = "# ariadne:end";
+var tomlQuoted = (v) => JSON.stringify(String(v));
+function codexBlock(spec) {
+	const env = Object.entries(spec.env ?? {}).map(([k, v]) => `${k} = ${tomlQuoted(v)}`).join(", ");
+	return [
+		TOML_START,
+		`[mcp_servers.${SERVER_NAME}]`,
+		`command = ${tomlQuoted(spec.command)}`,
+		`args = [${spec.args.map(tomlQuoted).join(", ")}]`,
+		env ? `env = { ${env} }` : "",
+		TOML_END
+	].filter(Boolean).join("\n");
+}
+/** Блок ariadne в config.toml Codex → {command, args}. */
+function codexParse(text) {
+	const s = text.indexOf(TOML_START);
+	const e = text.indexOf(TOML_END);
+	if (s < 0 || e < s) return null;
+	const block = text.slice(s, e);
+	const command = block.match(/^command\s*=\s*"(.*)"$/m)?.[1];
+	const args = [...block.matchAll(/^\s*"(.*)",?$/gm)].map((m) => m[1]);
+	return { command, args };
 }
 function readJson(file) {
 	if (!existsSync(file)) return {};
@@ -2713,10 +2749,27 @@ function readJson(file) {
 }
 function entriesOf(kind, cfg) {
 	if (kind === "claude") return cfg.mcpServers;
+	if (kind === "opencode") return cfg.mcp;
 	return cfg.mcp?.servers;
 }
 /** connected — прописан с этой командой; outdated — прописан, но путь другой (папку перенесли); missing — нет. */
 function agentStatus(kind, home, spec) {
+	if (kind === "codex") {
+		const file = configPath(kind, home);
+		if (!existsSync(file)) return {
+			status: "missing",
+			file
+		};
+		const cur = codexParse(readFileSync(file, "utf8"));
+		if (!cur?.command) return {
+			status: "missing",
+			file
+		};
+		return {
+			status: cur.command === spec.command && JSON.stringify(cur.args) === JSON.stringify(spec.args) ? "connected" : "outdated",
+			file
+		};
+	}
 	const file = configPath(kind, home);
 	let cfg;
 	try {
@@ -2732,8 +2785,12 @@ function agentStatus(kind, home, spec) {
 		status: "missing",
 		file
 	};
+	const cmd = kind === "opencode" ? {
+		command: entry.command?.[0],
+		args: (entry.command ?? []).slice(1)
+	} : entry;
 	return {
-		status: entry.command === spec.command && JSON.stringify(entry.args) === JSON.stringify(spec.args) ? "connected" : "outdated",
+		status: cmd.command === spec.command && JSON.stringify(cmd.args) === JSON.stringify(spec.args) ? "connected" : "outdated",
 		file,
 		current: entry
 	};
@@ -2743,13 +2800,37 @@ function agentStatus(kind, home, spec) {
 * запись через временный файл (Claude Code держит ~/.claude.json открытым и сам его переписывает).
 */
 function connectAgent(kind, home, spec) {
+	if (kind === "codex") {
+		const file = configPath(kind, home);
+		mkdirSync(dirname(file), { recursive: true });
+		let text = existsSync(file) ? readFileSync(file, "utf8") : "";
+		const backup = existsSync(file) ? file + ".ariadne-backup" : null;
+		if (backup) copyFileSync(file, backup);
+		const s = text.indexOf(TOML_START);
+		const e = text.indexOf(TOML_END);
+		const block = codexBlock(spec);
+		if (s >= 0 && e > s) text = text.slice(0, s) + block + text.slice(e + TOML_END.length);
+		else text = text.replace(/\s*$/, "") + (text.trim() ? "\n\n" : "") + block + "\n";
+		writeFileSync(file + ".ariadne-tmp", text, "utf8");
+		renameSync(file + ".ariadne-tmp", file);
+		return {
+			file,
+			backup
+		};
+	}
 	const file = configPath(kind, home);
 	const cfg = readJson(file);
 	if (kind === "claude") cfg.mcpServers = {
 		...cfg.mcpServers,
 		[SERVER_NAME]: configEntry(kind, spec)
 	};
-	else {
+	else if (kind === "opencode") {
+		const mcp = cfg.mcp ?? {};
+		cfg.mcp = {
+			...mcp,
+			[SERVER_NAME]: configEntry(kind, spec)
+		};
+	} else {
 		const mcp = cfg.mcp ?? {};
 		cfg.mcp = {
 			...mcp,
@@ -3440,7 +3521,7 @@ function boardSnapshot(db, boardId, opts = {}) {
 }
 //#endregion
 //#region src/main/agents.ts
-var KINDS = ["claude", "zcode"];
+var KINDS = ["claude", "opencode", "codex", "zcode"];
 var INSTRUCTION_FILES = {
 	"CLAUDE.md": "CLAUDE.snippet.md",
 	"AGENTS.md": "AGENTS.snippet.md"
