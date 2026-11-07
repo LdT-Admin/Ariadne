@@ -480,6 +480,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .status-chip.ok .dot { background: #8CC084; }
 .status-chip.warn .dot { background: #e5b567; }
 .agent-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; margin: 0 0 8px; border: 1px solid var(--border); border-radius: 10px; }
+.agent-card.snippet-mode { flex-direction: column; align-items: stretch; gap: 8px; }
+.agent-fmt { width: auto; padding: 4px 8px; font-size: 12px; }
+.agent-snippet { margin: 0; padding: 10px 12px; background: #141414; border: 1px solid var(--border); border-radius: 8px; color: var(--text); font: 11.5px/1.55 Consolas, "Cascadia Mono", monospace; white-space: pre-wrap; word-break: break-all; max-height: 150px; overflow: auto; user-select: text; }
 .agent-card > .muted { flex: none; color: var(--text-muted); }
 .agent-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .agent-name-row { display: flex; align-items: center; gap: 10px; }

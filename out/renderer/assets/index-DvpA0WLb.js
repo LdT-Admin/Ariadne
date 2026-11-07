@@ -36587,8 +36587,10 @@ function SettingsDialog(props) {
 		{ id: "notes", label: S.nav.notes, Icon: FileText },
 		{ id: "updates", label: S.nav.updates, Icon: RefreshCw }
 	];
-	const chip = (a) => a.status === "connected" ? "ok" : a.status === "outdated" ? "warn" : "off";
-	const chipText = (a) => a.status === "connected" ? S.status.connected : a.status === "outdated" ? S.status.outdated : S.status.missing;
+	const formatsOf = (a) => a.kind === "claude" ? ["JSON", "Команда"] : a.kind === "codex" ? ["TOML"] : ["JSON"];
+	const textOf = (a, f) => f === "Команда" ? info?.claudeCli ?? "" : a.snippet;
+	const [agentFmtState, setAgentFmtState] = (0, import_react.useState)({});
+	const curFmt = (a) => agentFmtState[a.kind] ?? formatsOf(a)[0];
 	const field = (label, key, type = "text") => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 		className: "field",
 		children: [
@@ -36720,22 +36722,15 @@ function SettingsDialog(props) {
 									] })
 								}),
 								tab === "agents" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
-									className: "settings-section",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.agents }),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-											className: "hint",
-											children: S.agentsHint
-										}),
-										(info?.agents ?? []).map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "agent-card",
+										className: "settings-section",
 										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bot, {
-												size: 18,
-												className: "muted"
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.agents }),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+												className: "hint",
+												children: S.agentsHint
 											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "agent-main",
+											(info?.agents ?? []).map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "agent-card snippet-mode",
 												children: [
 													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 														className: "agent-name-row",
@@ -36744,66 +36739,36 @@ function SettingsDialog(props) {
 																className: "agent-name",
 																children: a.name
 															}),
-															/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																className: `status-chip ${chip(a)}`,
-																children: [
-																	/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot" }),
-																	" ",
-																	chipText(a)
-																]
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
+															formatsOf(a).length > 1 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
+																className: "input agent-fmt",
+																value: curFmt(a),
+																onChange: (e) => setAgentFmtState({ ...agentFmtState, [a.kind]: e.target.value }),
+																children: formatsOf(a).map((f) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: f,
+																	children: f
+																}, f))
+															}),
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+																className: "btn primary",
+																onClick: () => copy(textOf(a, curFmt(a))),
+																children: S.copyBtn
 															})
 														]
 													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 														className: "agent-file",
-														title: a.file,
-														children: a.file
+														children: `Файл: ${a.file}`
 													}),
-													a.file !== a.standard && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-														className: "agent-file",
-														title: a.standard,
-														children: `Обычное место: ${a.standard}`
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", {
+														className: "agent-snippet",
+														children: textOf(a, curFmt(a))
 													})
 												]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												className: a.status === "connected" ? "mini-btn" : "btn primary",
-												onClick: () => run(async () => {
-													const r = await window.api.agentPickConfig(a.kind);
-													if (r?.ok) {
-														await reload();
-														toast(S.connected(a.name));
-													}
-												}),
-												children: a.status === "connected" ? S.pickAnother : S.pickFile
-											}),
-											a.status !== "missing" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												className: "mini-btn",
-												title: S.rewriteTitle,
-												onClick: () => run(async () => {
-													await window.api.agentRewrite(a.kind);
-													await reload();
-													toast(S.connected(a.name));
-												}),
-												children: S.rewrite
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												className: "mini-btn",
-												title: S.copyJson,
-												onClick: () => copy(a.snippet),
-												children: S.copyJson
-											}),
-											a.kind === "claude" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-												className: "mini-btn",
-												title: S.copyCli,
-												onClick: () => copy(info.claudeCli),
-												children: S.copyCli
-											})
+											}, a.kind))
 										]
-									}, a.kind))
-									]
-								}),
-								tab === "boards" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+									}),
+									tab === "boards" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
 									className: "settings-section",
 									children: [
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.nav.boards }),
