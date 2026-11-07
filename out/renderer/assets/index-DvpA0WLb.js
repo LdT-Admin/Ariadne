@@ -37888,7 +37888,7 @@ function NotesSidebar(props) {
 		}, r.key);
 		const line = dropLine?.key === r.key ? dropLine.after ? " drop-after" : " drop-before" : "";
 		return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-			className: "sidebar-item note-item" + (n.name === props.active && !props.trashOpen ? " active" : "") + (r.group ? " in-group" : "") + (drag === n.name ? " dragging" : "") + line,
+			className: "sidebar-item note-item" + (n.name === props.active && !props.trashOpen ? " active" : "") + (props.org.shared?.includes(n.name) ? " shared" : "") + (r.group ? " in-group" : "") + (drag === n.name ? " dragging" : "") + line,
 			style,
 			title: n.name,
 			draggable: true,
@@ -37955,20 +37955,14 @@ function NotesSidebar(props) {
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "notes-actions",
 				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						className: "icon-btn",
-						title: N.newNote,
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						className: "sidebar-item",
 						onClick: props.onNew,
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FilePlus2, { size: 16 })
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						className: "icon-btn",
-						title: N.newFolder,
-						onClick: async () => {
-							const id = await props.onNewFolder("");
-							if (id) setRenaming(`f:${id}`);
-						},
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderPlus, { size: 16 })
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 15 }),
+							" ",
+							N.newNote
+						]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "spacer" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -38703,11 +38697,10 @@ function App() {
 	const confirmShare = async () => {
 		const ask = shareAsk;
 		setShareAsk(null);
-		const cfg = await window.api.syncStatus();
-		if (!cfg.configured) return toast(t.settings.acc.needAccount);
 		if (ask.kind === "board") await window.api.boardShare(ask.id);
 		else await window.api.noteShare(ask.name);
-		toast(t.settings.acc.sharedToast(ask.name));
+		const cfg = await window.api.syncStatus();
+		toast(cfg.configured ? t.settings.acc.sharedToast(ask.name) : t.settings.acc.sharedLocal(ask.name));
 	};
 	const toggle = (o) => setOverlay((cur) => cur === o ? null : o);
 	(0, import_react.useEffect)(() => {
@@ -39667,7 +39660,7 @@ async function notesScenario() {
 		const n = await window.api.notesCreate(title);
 		await window.api.notesWrite(n.name, body);
 	}
-	document.querySelector('.notes-actions .icon-btn[title="Новая заметка"]')?.click();
+	clickText(".sidebar-item", "Новая заметка");
 	await wait(700);
 	typeInto("Созвон с заказчиком\n\nПочта: client@example.com");
 	await wait(900);

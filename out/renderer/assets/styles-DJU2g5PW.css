@@ -490,7 +490,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 /* ---------- Совместные доски и заметки ---------- */
 .shared-mark { flex: none; color: var(--accent); opacity: 0.9; }
 .board-item.shared .board-name, .note-item.shared .board-name { color: var(--text); }
-.board-item.shared { box-shadow: inset 2px 0 0 rgba(217, 119, 87, 0.55); }
+.board-item.shared { background-image: linear-gradient(90deg, rgba(217, 119, 87, 0.24), rgba(217, 119, 87, 0.07) 60%, rgba(217, 119, 87, 0)); }
 .acc-form { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 12px; }
 .acc-form .input { max-width: 360px; }
 .agent-row { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 6px 10px; margin: 0 -10px; border-radius: 8px; }
@@ -655,6 +655,8 @@ pre.diff { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 8px 0; fo
 .note-item.in-group { padding-left: 30px; }
 .note-pin { flex: none; color: #6b6b6b; }
 .note-item.dragging { opacity: 0.4; }
+.board-item.shared, .note-item.shared { background-image: linear-gradient(90deg, rgba(217, 119, 87, 0.24), rgba(217, 119, 87, 0.07) 60%, rgba(217, 119, 87, 0)); }
+.board-item.shared.active, .note-item.shared.active, .board-item.shared:hover, .note-item.shared:hover { background-color: var(--selected); }
 .note-group.dragging, .note-folder.dragging { opacity: 0.4; }
 .note-group.drop-before, .note-folder.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
 .note-group.drop-after, .note-folder.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }

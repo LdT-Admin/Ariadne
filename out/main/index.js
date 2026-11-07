@@ -4354,17 +4354,19 @@ function registerIpc(ctx) {
 		},
 		syncNow: () => runSync("manual"),
 		boardShare: (boardId) => {
-			requireBoard(db, boardId);
+			assertBoard(db, boardId);
 			write(db, () => db.prepare(`UPDATE boards SET shared_at = ? WHERE id = ?`).run(Date.now(), boardId));
+			for (const w of BrowserWindow.getAllWindows()) w.webContents.send("db:changed");
 			runSync("share").catch(() => {});
-			return readSyncCfg(db).token ? true : false;
+			return true;
 		},
 		noteShare: (name) => {
 			const dir = ctx.notes.store.dir;
 			const shared = readSharedNotes(dir);
 			if (!shared.includes(name)) writeSharedNotes(dir, [...shared, name]);
+			ctx.notes.afterOwnChange([]);
 			runSync("share").catch(() => {});
-			return readSyncCfg(db).token ? true : false;
+			return true;
 		},
 		reportBench: (result) => ctx.onBench(result),
 		capture: (name, titlePart) => ctx.capture(name, titlePart)
