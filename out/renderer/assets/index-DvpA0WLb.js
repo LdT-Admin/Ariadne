@@ -36442,7 +36442,7 @@ function SettingsDialog(props) {
 	const [acc, setAcc] = (0, import_react.useState)(null);
 	const [accBusy, setAccBusy] = (0, import_react.useState)(false);
 	const [accErr, setAccErr] = (0, import_react.useState)("");
-	const [accForm, setAccForm] = (0, import_react.useState)({ server: "http://100.68.27.113:3010", login: "", password: "" });
+	const [accForm, setAccForm] = (0, import_react.useState)({ server: "http://100.68.27.113:3010", login: "mydi", password: "" });
 	const [boards, setBoards] = (0, import_react.useState)([]);
 	const [notes, setNotes] = (0, import_react.useState)(null);
 	const reload = (0, import_react.useCallback)(async () => {
@@ -36580,13 +36580,6 @@ function SettingsDialog(props) {
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "kv",
 											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Сервер" }),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: acc.server ?? "" })
-											]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "kv",
-											children: [
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "k", children: "Синхронизация" }),
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "v", children: acc.lastRun ? new Date(acc.lastRun).toLocaleString() : S.acc.never })
 											]
@@ -36627,7 +36620,6 @@ function SettingsDialog(props) {
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "acc-form",
 											children: [
-												field(S.acc.server, "server"),
 												field(S.acc.login, "login"),
 												field(S.acc.password, "password", "password")
 											]
@@ -36635,12 +36627,6 @@ function SettingsDialog(props) {
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "modal-actions",
 											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													className: "btn",
-													disabled: accBusy || !accForm.login || !accForm.password,
-													onClick: () => accRun(() => window.api.syncRegister(accForm.server, accForm.login, accForm.password)),
-													children: S.acc.create
-												}),
 												/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 													className: "btn primary",
 													disabled: accBusy || !accForm.login || !accForm.password,
@@ -36662,14 +36648,6 @@ function SettingsDialog(props) {
 										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 											className: "hint",
 											children: S.agentsHint
-										}),
-										info && !info.serverExists && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "error",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TriangleAlert, { size: 13 }),
-												" ",
-												S.serverMissing
-											]
 										}),
 										(info?.agents ?? []).map((a) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "agent-card",
@@ -36788,15 +36766,6 @@ function SettingsDialog(props) {
 																props.onBoardsChanged?.();
 															}),
 															children: S.unlink
-														}),
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-															className: "mini-btn",
-															disabled: !b.projectDir,
-															onClick: () => run(async () => {
-																const r = await window.api.writeInstructions(b.id, ["CLAUDE.md", "AGENTS.md"]);
-																toast(S.instrDone(r.map((x) => x.file).join(", ")));
-															}),
-															children: S.instructions
 														})
 													]
 												}),
