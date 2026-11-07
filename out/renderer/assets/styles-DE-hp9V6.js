@@ -14456,6 +14456,7 @@ var ru = {
 		agentsHint: "MCP-сервер ariadne-board: доски и заметки прямо в агенте.",
 		status: {
 			connected: "Подключено",
+			provisioned: "Прописано — агент не установлен",
 			outdated: "Путь устарел",
 			missing: "Не подключено"
 		},

@@ -36587,8 +36587,8 @@ function SettingsDialog(props) {
 		{ id: "notes", label: S.nav.notes, Icon: FileText },
 		{ id: "updates", label: S.nav.updates, Icon: RefreshCw }
 	];
-	const chip = (st) => st === "connected" ? "ok" : st === "outdated" ? "warn" : "off";
-	const chipText = (st) => st === "connected" ? S.status.connected : st === "outdated" ? S.status.outdated : S.status.missing;
+	const chip = (a) => a.status === "connected" ? a.installed ? "ok" : "warn" : a.status === "outdated" ? "warn" : "off";
+	const chipText = (a) => a.status === "connected" ? a.installed ? S.status.connected : S.status.provisioned : a.status === "outdated" ? S.status.outdated : S.status.missing;
 	const field = (label, key, type = "text") => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 		className: "field",
 		children: [
@@ -36745,11 +36745,11 @@ function SettingsDialog(props) {
 																	children: a.name
 																}),
 																/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-																	className: `status-chip ${chip(a.status)}`,
+																	className: `status-chip ${chip(a)}`,
 																	children: [
 																		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "dot" }),
 																		" ",
-																		chipText(a.status)
+																		chipText(a)
 																	]
 																})
 															]

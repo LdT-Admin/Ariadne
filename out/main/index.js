@@ -2853,6 +2853,21 @@ function connectAgent(kind, home, spec) {
 		backup
 	};
 }
+var CLI_NAMES = {
+	claude: "claude",
+	opencode: "opencode",
+	codex: "codex",
+	zcode: "zcode"
+};
+/** Установлен ли CLI агента на этом ПК (поиск в PATH). */
+var cliInstalled = (kind) => {
+	try {
+		execFileSync("where", [CLI_NAMES[kind]], { stdio: "ignore", windowsHide: true });
+		return true;
+	} catch {
+		return false;
+	}
+};
 var START = "<!-- ariadne:start -->";
 var END = "<!-- ariadne:end -->";
 var renderSnippet = (template, boardName) => template.replaceAll("{{BOARD_NAME}}", boardName).trim();
@@ -3557,6 +3572,7 @@ var Agents = class {
 					kind,
 					name: AGENT_NAMES[kind],
 					status: st.status,
+					installed: cliInstalled(kind),
 					file: st.file,
 					snippet: manualSnippet(kind, this.spec(kind))
 				};
