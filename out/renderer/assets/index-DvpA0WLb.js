@@ -36189,11 +36189,147 @@ function BoardNotesButton(props) {
 //#region src/renderer/SettingsDialog.tsx
 var S = t.settings;
 /** Настройки (ТЗ 8.1): подключение Claude Code / Z Code и папка проекта текущей доски. */
+/** Карточка обновления: предложение по центру с затемнением, затем загрузка с прогрессом. Нить логотипа прорисовывается (LOGO.md §6). */
+function UpdateOverlay(props) {
+	const U = t.settings.upd;
+	const [phase, setPhase] = (0, import_react.useState)("offer");
+	const [progress, setProgress] = (0, import_react.useState)(null);
+	const [error, setError] = (0, import_react.useState)("");
+	const [closable, setClosable] = (0, import_react.useState)(true);
+	(0, import_react.useEffect)(() => window.api.onUpdateProgress(setProgress), []);
+	(0, import_react.useEffect)(() => {
+		const onKey = (e) => {
+			if (e.key === "Escape" && closable) props.onClose();
+		};
+		window.addEventListener("keydown", onKey, true);
+		return () => window.removeEventListener("keydown", onKey, true);
+	}, [closable, props.onClose]);
+	const apply = async () => {
+		setClosable(false);
+		setPhase("apply");
+		setError("");
+		try {
+			await window.api.updatesApply();
+		} catch (e) {
+			setError(String(e.message).replace(/^Error invoking remote method 'db': (Error: )?/, ""));
+			setPhase("offer");
+			setClosable(true);
+		}
+	};
+	const pct = progress?.done ? 100 : progress?.total ? Math.min(99, Math.round(progress.got / progress.total * 100)) : 0;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+		className: "modal-backdrop update-backdrop",
+		onPointerDown: (e) => e.target === e.currentTarget && closable && props.onClose(),
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "modal update-card",
+			role: "dialog",
+			"aria-label": phase === "offer" ? U.availableTitle(props.version) : U.updating(props.version),
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+					className: "update-logo",
+					viewBox: "0 0 200 200",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+							className: "update-dots",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 40, cy: 40, r: 8 }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 160, cy: 100, r: 8 }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 100, cy: 160, r: 8 }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 160, cy: 160, r: 8 })
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("polyline", {
+							className: "update-thread",
+							points: "40 160 40 100 100 100 100 40 160 40"
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("g", {
+							className: "update-nodes",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 40, cy: 160, r: 13, style: { animationDelay: "0.3s" } }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 40, cy: 100, r: 13, style: { animationDelay: "0.45s" } }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 100, cy: 100, r: 13, style: { animationDelay: "0.6s" } }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 100, cy: 40, r: 13, style: { animationDelay: "0.75s" } }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", { cx: 160, cy: 40, r: 13, style: { animationDelay: "0.9s" } })
+							]
+						})
+					]
+				}),
+				phase === "offer" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: U.availableTitle(props.version) }),
+					props.notes ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "update-notes",
+						children: props.notes
+					}) : null,
+					error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "error",
+						children: error
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "form-buttons",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								className: "btn",
+								onClick: props.onClose,
+								children: U.later
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								className: "btn primary",
+								autoFocus: true,
+								onClick: apply,
+								children: U.apply
+							})
+						]
+					})
+				] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: U.updating(props.version) }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "update-progress",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "update-bar",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "update-bar-fill",
+									style: { width: pct + "%" }
+								})
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "update-progress-meta",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: progress?.done ? U.relaunch : pct > 0 || progress?.got ? `${U.downloading} ${pct}%` : U.verify }),
+									progress?.total ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: `${(progress.got / 1048576).toFixed(1)} / ${(progress.total / 1048576).toFixed(1)} МБ` }) : null
+								]
+							})
+						]
+					}),
+					error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "error",
+						children: error
+					})
+				] })
+			]
+		})
+	});
+}
 function SettingsDialog(props) {
 	const [info, setInfo] = (0, import_react.useState)(null);
 	const [error, setError] = (0, import_react.useState)("");
 	const [files, setFiles] = (0, import_react.useState)(["CLAUDE.md", "AGENTS.md"]);
 	const [written, setWritten] = (0, import_react.useState)("");
+	const [upd, setUpd] = (0, import_react.useState)(null);
+	const [updBusy, setUpdBusy] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		window.api.updatesCheck().then(setUpd, () => setUpd(null));
+	}, []);
+	const checkUpdates = async () => {
+		setUpdBusy(true);
+		try {
+			const r = await window.api.updatesCheck();
+			setUpd(r);
+			if (r.available) props.onUpdate({ version: r.latest.version, notes: r.latest.notes ?? "" });
+		} finally {
+			setUpdBusy(false);
+		}
+	};
 	const reload = (0, import_react.useCallback)(async () => setInfo(await window.api.agentsInfo()), []);
 	(0, import_react.useEffect)(() => {
 		reload();
@@ -36246,6 +36382,32 @@ function SettingsDialog(props) {
 			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "modal-body",
 				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+						className: "settings-section",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.upd.title }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "agent-row",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "agent-main",
+										children: upd ? upd.error ? S.upd.failed(upd.error) : upd.available ? S.upd.availableTitle(upd.latest.version) : S.upd.current(upd.current) : S.upd.checking
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										className: "mini-btn",
+										disabled: updBusy,
+										onClick: checkUpdates,
+										children: updBusy ? S.upd.checking : S.upd.check
+									}),
+									upd?.available && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										className: "btn primary",
+										onClick: () => props.onUpdate({ version: upd.latest.version, notes: upd.latest.notes ?? "" }),
+										children: S.upd.apply
+									})
+								]
+							})
+						]
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 						className: "settings-section",
 						children: [
@@ -38288,6 +38450,7 @@ function App() {
 	const [resizeMode, setResizeMode] = (0, import_react.useState)(false);
 	const [filter, setFilter] = (0, import_react.useState)(EMPTY_FILTER);
 	const [minimapOpen, setMinimapOpen] = (0, import_react.useState)(false);
+	const [update, setUpdate] = (0, import_react.useState)(null);
 	const [section, setSection] = (0, import_react.useState)(savedSection);
 	const sectionRef = (0, import_react.useRef)(section);
 	sectionRef.current = section;
@@ -38339,6 +38502,7 @@ function App() {
 		reloadGraph,
 		reloadTrash
 	]);
+	(0, import_react.useEffect)(() => window.api.onUpdateAvailable((info) => setUpdate(info)), []);
 	const toggle = (o) => setOverlay((cur) => cur === o ? null : o);
 	(0, import_react.useEffect)(() => {
 		const onKey = (e) => {
@@ -38900,10 +39064,16 @@ function App() {
 			settingsOpen && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SettingsDialog, {
 				board: active,
 				onClose: () => setSettingsOpen(false),
+				onUpdate: setUpdate,
 				onBoardsChanged: reloadBoards,
 				onNotesMoved: () => setNotesReloadKey((k) => k + 1),
 				onBoardNotesChanged: () => setBoardNotesKey((k) => k + 1)
-				})
+				}),
+			update && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(UpdateOverlay, {
+				version: update.version,
+				notes: update.notes,
+				onClose: () => setUpdate(null)
+			})
 		]
 	});
 }
@@ -39090,6 +39260,19 @@ async function takeShots(scene, g, hooks) {
 	hooks.openSettings();
 	await wait(600);
 	await window.api.capture("settings");
+	{
+		const hasUpd = [...document.querySelectorAll(".settings-section h3")].some((h) => h.textContent === "Обновления");
+		check("upd: секция обновлений в настройках", hasUpd);
+		const u = await window.api.updatesCheck();
+		if (!u?.error && u.available) {
+			document.querySelector(".settings-section .btn.primary")?.click();
+			await wait(400);
+			check("upd: карточка обновления с анимацией логотипа", !!document.querySelector(".update-card .update-logo"));
+			document.querySelector(".update-card .btn")?.click();
+			await wait(250);
+			check("upd: «Позже» закрывает карточку", !document.querySelector(".update-card"));
+		} else check("upd: канал отвечает (обновлений нет или ошибка сети учтена)", !u?.error || typeof u.error === "string");
+	}
 	hooks.closeSettings();
 	const press = (code, init = {}) => window.dispatchEvent(new KeyboardEvent("keydown", {
 		code,

@@ -3537,6 +3537,72 @@ var Agents = class {
 //#endregion
 //#region src/main/ipc.ts
 /** Белый список методов, доступных renderer'у. Автор всех изменений из UI — владелец. */
+//#region src/main/updater.ts
+/** Канал обновлений (фаза B): свой сервер в Tailscale; обновление = подмена app.asar с бэкапом. */
+var UPDATE_URL = process.env.ARIADNE_UPDATE_URL || "http://100.68.27.113:3010";
+function semverGt(a, b) {
+	const pa = String(a).split(".").map(Number);
+	const pb = String(b).split(".").map(Number);
+	for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+		const x = pa[i] || 0;
+		const y = pb[i] || 0;
+		if (x > y) return true;
+		if (x < y) return false;
+	}
+	return false;
+}
+/** Проверить канал. Ошибки не роняем: обновления не критичны для работы приложения. */
+async function checkUpdate() {
+	const current = app.getVersion();
+	if (!app.isPackaged) return { current, available: false, dev: true };
+	try {
+		const r = await net.fetch(`${UPDATE_URL}/latest.json`, { signal: AbortSignal.timeout(8000) });
+		if (!r.ok) throw new Error(`HTTP ${r.status}`);
+		const latest = await r.json();
+		return { current, latest, available: semverGt(latest.version, current) };
+	} catch (e) {
+		return { current, available: false, error: String(e?.message ?? e) };
+	}
+}
+/** Скачать, проверить sha256, подменить app.asar (старый — в .bak), перезапустить приложение. */
+async function applyUpdate(progressTo) {
+	const info = await checkUpdate();
+	if (!info.available || !info.latest) throw new Error("Нет доступного обновления");
+	const { asar, sha256, version } = info.latest;
+	const target = join(dirname(process.execPath), "resources", "app.asar");
+	const tmp = join(runtimeDir, `update-${version}.asar`);
+	const res = await net.fetch(`${UPDATE_URL}/asar/${encodeURIComponent(asar)}`);
+	if (!res.ok) throw new Error(`Скачивание: HTTP ${res.status}`);
+	const total = Number(res.headers.get("content-length")) || 0;
+	const fd = openSync(tmp, "w");
+	let got = 0;
+	try {
+		for await (const chunk of res.body) {
+			writeSync(fd, chunk);
+			got += chunk.length;
+			progressTo?.({ got, total });
+		}
+	} finally {
+		closeSync(fd);
+	}
+	const hash = createHash("sha256").update(readFileSync(tmp)).digest("hex");
+	if (sha256 && hash !== sha256) {
+		rmSync(tmp, { force: true });
+		throw new Error("Контрольная сумма не совпала — файл повреждён");
+	}
+	const bak = `${target}.${Date.now()}.bak`;
+	renameSync(target, bak);
+	try {
+		renameSync(tmp, target);
+	} catch (e) {
+		renameSync(bak, target);
+		throw e;
+	}
+	progressTo?.({ done: true });
+	app.relaunch();
+	app.exit(0);
+}
+//#endregion
 function registerIpc(ctx) {
 	const { db } = ctx;
 	const files = new Attachments(db, ctx.dataDir);
@@ -3888,6 +3954,8 @@ function registerIpc(ctx) {
 		exportPng: (boardId, region) => agents.exportPng(boardId, region, ctx.flags.shots ? join(ctx.flags.shots, region ? "export-view.png" : "export-all.png") : void 0),
 		generateLoadBoard: (n, m) => generateLoadBoard(db, n, m),
 		launchFlags: () => ctx.flags,
+		updatesCheck: () => checkUpdate(),
+		updatesApply: () => applyUpdate((p) => sender?.webContents?.send("update:progress", p)),
 		reportBench: (result) => ctx.onBench(result),
 		capture: (name, titlePart) => ctx.capture(name, titlePart)
 	};
@@ -4517,6 +4585,15 @@ function openMain(note) {
 	});
 	load(win, "index", query);
 	watchExternalChanges(win);
+	/** Тихая проверка обновлений после запуска; если есть — карточка в интерфейсе. */
+	if (!flags.bench) setTimeout(() => {
+		checkUpdate().then((r) => {
+			if (r.available && !win.isDestroyed()) win.webContents.send("update:available", {
+				version: r.latest.version,
+				notes: r.latest.notes ?? ""
+			});
+		}).catch(() => {});
+	}, 2500);
 }
 /**
 * Компактное окно одной заметки (ТЗ заметок §6): без досок и холста — отдельная лёгкая страница.

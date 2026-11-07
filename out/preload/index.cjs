@@ -112,6 +112,8 @@ var api = Object.fromEntries([
 	"purgeTrash",
 	"generateLoadBoard",
 	"launchFlags",
+	"updatesCheck",
+	"updatesApply",
 	"reportBench",
 	"capture"
 ].map((m) => [m, call(m)]));
@@ -129,6 +131,16 @@ api.onOpenNote = (cb) => {
 	const listener = (_e, name) => cb(name);
 	electron.ipcRenderer.on("open-note", listener);
 	return () => electron.ipcRenderer.removeListener("open-note", listener);
+};
+api.onUpdateAvailable = (cb) => {
+	const listener = (_e, info) => cb(info);
+	electron.ipcRenderer.on("update:available", listener);
+	return () => electron.ipcRenderer.removeListener("update:available", listener);
+};
+api.onUpdateProgress = (cb) => {
+	const listener = (_e, p) => cb(p);
+	electron.ipcRenderer.on("update:progress", listener);
+	return () => electron.ipcRenderer.removeListener("update:progress", listener);
 };
 api.filePathOf = (file) => electron.webUtils.getPathForFile(file);
 electron.contextBridge.exposeInMainWorld("api", api);
