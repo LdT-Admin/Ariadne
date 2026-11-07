@@ -33572,23 +33572,36 @@ function roundCorners(c) {
 	return out;
 }
 /**
-* Нитка с коленом в trunk (x для горизонтальной, y для вертикальной):
-* corners — опорные точки ломаной (для обхода карточек), pts — она же со скруглёнными углами (для рисования).
+* Нитка — кубическая кривая Безье (Miro/FigJam): «рукава» контрольных точек вдоль стороны выхода.
+* pts — та же кривая, разбитая на ломаную (для пунктира, хит-теста и подписей).
 */
 function makeCurve(r, trunk = r.mid) {
 	const { sx, sy, ex, ey } = r;
-	let corners;
-	if (r.horizontal) corners = Math.abs(sy - ey) < .5 ? [sx, sy, ex, ey] : [sx, sy, trunk, sy, trunk, ey, ex, ey];
-	else corners = Math.abs(sx - ex) < .5 ? [sx, sy, ex, ey] : [sx, sy, sx, trunk, ex, trunk, ex, ey];
+	const adx = r.horizontal ? r.dir : 0;
+	const ady = r.horizontal ? 0 : r.dir;
+	const dist = Math.hypot(ex - sx, ey - sy);
+	const k = Math.min(170, Math.max(40, dist * .45));
+	const c1x = sx + adx * k, c1y = sy + ady * k;
+	const c2x = ex - adx * k, c2y = ey - ady * k;
+	const pts = [];
+	if (Math.abs(r.horizontal ? sy - ey : sx - ex) < .5) pts.push(sx, sy, ex, ey);
+	else for (let i = 0; i <= 22; i++) {
+		const t = i / 22, u = 1 - t;
+		pts.push(u * u * u * sx + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * ex, u * u * u * sy + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * ey);
+	}
 	return {
 		sx,
 		sy,
 		ex,
 		ey,
-		adx: r.horizontal ? r.dir : 0,
-		ady: r.horizontal ? 0 : r.dir,
-		corners,
-		pts: roundCorners(corners)
+		adx,
+		ady,
+		c1x,
+		c1y,
+		c2x,
+		c2y,
+		corners: [sx, sy, ex, ey],
+		pts
 	};
 }
 function linkCurve(a, b) {
@@ -33622,6 +33635,18 @@ function curveMid(c) {
 		half -= len;
 	}
 	return [c.sx, c.sy];
+}
+/** Точка на ломаной на заданном расстоянии от начала — для бегущей искры. */
+function pointAtDist(pts, dist) {
+	for (let i = 2; i < pts.length; i += 2) {
+		const len = Math.hypot(pts[i] - pts[i - 2], pts[i + 1] - pts[i - 1]);
+		if (dist <= len && len > 0) {
+			const f = dist / len;
+			return [pts[i - 2] + (pts[i] - pts[i - 2]) * f, pts[i - 1] + (pts[i + 1] - pts[i - 1]) * f];
+		}
+		dist -= len;
+	}
+	return [pts[0], pts[1]];
 }
 var GEO_CELL = 400;
 var GEO_PAD = 6;
@@ -33720,14 +33745,17 @@ var LinkRouter = class {
 		return best;
 	}
 };
-/** Границы связи (колено всегда между концами) с запасом — для индексов тайлов и отсечения. */
+/** Границы связи с запасом на «рукава» Безье — для индексов тайлов и отсечения. */
 function routedBounds(a, b) {
 	const r = linkRoute(a, b);
+	const k = Math.min(170, Math.max(40, Math.hypot(r.ex - r.sx, r.ey - r.sy) * .45)) + 40;
+	const adx = r.horizontal ? r.dir : 0;
+	const ady = r.horizontal ? 0 : r.dir;
 	return {
-		x0: Math.min(r.sx, r.ex) - 40,
-		y0: Math.min(r.sy, r.ey) - 40,
-		x1: Math.max(r.sx, r.ex) + 40,
-		y1: Math.max(r.sy, r.ey) + 40
+		x0: Math.min(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
+		y0: Math.min(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k),
+		x1: Math.max(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
+		y1: Math.max(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k)
 	};
 }
 //#endregion
@@ -33833,6 +33861,19 @@ function drawLinks(g, links, pos, o) {
 	const { clip } = o;
 	let drawn = 0;
 	const arrow = 9 / o.zoom;
+	if (o.glow) for (const l of links) {
+		const a = pos(l.fromId), b = pos(l.toId);
+		if (!a || !b) continue;
+		const st = LINK_STYLE[l.type];
+		const c = o.curveOf ? o.curveOf(l, a, b) : linkCurve(a, b);
+		strokeCurve(g, c, SOLID, clip);
+		g.stroke({
+			width: st.width * (o.widthScale ?? 1) * 4 / o.zoom,
+			color: st.color,
+			alpha: alpha * .16,
+			cap: "round"
+		});
+	}
 	for (const type of LINK_TYPES) {
 		const list = byType.get(type);
 		if (!list?.length) continue;
@@ -34143,6 +34184,8 @@ var BoardScene = class BoardScene {
 	dotsSel = new Graphics();
 	tiles = new LinkTiles();
 	linksDyn = new Graphics();
+	linksFlow = new Graphics();
+	flow = null;
 	cardsLayer = new Container();
 	linkGhost = new Graphics();
 	/** Подписи типов связей (выделенный блок, связь под курсором) — поверх карточек. */
@@ -34214,7 +34257,7 @@ var BoardScene = class BoardScene {
 			height: this.app.screen.height
 		});
 		this.dots.visible = this.dotsSel.visible = false;
-		this.world.addChild(this.dots, this.dotsSel, this.tiles.layer, this.linksDyn, this.cardsLayer, this.groupSel, this.labels, this.linkGhost, this.handles, this.marquee);
+		this.world.addChild(this.dots, this.dotsSel, this.tiles.layer, this.linksDyn, this.linksFlow, this.cardsLayer, this.groupSel, this.labels, this.linkGhost, this.handles, this.marquee);
 		this.app.stage.addChild(this.grid, this.world);
 		this.app.renderer.on("resize", (w, h) => {
 			this.grid.width = w;
@@ -34222,6 +34265,7 @@ var BoardScene = class BoardScene {
 			this.applyView();
 		});
 		this.app.ticker.add(() => this.frame(), void 0, UPDATE_PRIORITY.HIGH);
+		this.app.ticker.add(() => this.drawFlowDots(performance.now()), void 0, UPDATE_PRIORITY.LOW);
 		this.app.ticker.add(() => this.stats.renderMs = performance.now() - this.frameEnd, void 0, UPDATE_PRIORITY.UTILITY);
 		this.bindInput(this.app.canvas);
 		this.applyView();
@@ -34632,13 +34676,27 @@ var BoardScene = class BoardScene {
 			this.cards.delete(id);
 		}
 	}
+	/** Бегущие искры по выделенным связям (каждый кадр; пусто — пропускаем). */
+	drawFlowDots(now) {
+		if (!this.flow?.length) return;
+		const g = this.linksFlow;
+		g.clear();
+		const r = 3.2 / this.view.zoom;
+		for (const f of this.flow) {
+			let total = 0;
+			for (let i = 2; i < f.pts.length; i += 2) total += Math.hypot(f.pts[i] - f.pts[i - 2], f.pts[i + 1] - f.pts[i - 1]);
+			const dist = ((now * .09 + f.phase * total) % (total + 1)) % total;
+			const p = pointAtDist(f.pts, dist);
+			g.circle(p[0], p[1], r).fill({ color: f.color, alpha: .95 });
+		}
+	}
 	/**
 	* Связи выделенного/перетаскиваемого блока и связь под курсором — отдельным ярким слоем поверх приглушённых
 	* остальных; у связей выделенного и у связи под курсором — подпись типа (ТЗ 5.5: «при наведении или выделении»).
 	*/
 	drawDyn() {
 		this.linksDyn.clear();
-		const ids = new Set([
+		this.flow = null;		const ids = new Set([
 			this.selected,
 			this.dragging,
 			...this.draggingGroup
@@ -34652,8 +34710,24 @@ var BoardScene = class BoardScene {
 			clip: this.viewport(.1),
 			alpha: this.selected || this.hovered ? LINK_OPACITY.highlighted : LINK_OPACITY.normal,
 			widthScale: this.selected || this.hovered ? 1.3 : 1,
+			glow: true,
 			curveOf: this.curveOf
 		});
+		if (list.size && this.view.zoom >= LOD.plate) {
+			const flow = [];
+			let fi = 0;
+			for (const l of list) {
+				const a = this.blocks.get(l.fromId), b = this.blocks.get(l.toId);
+				if (!a || !b) continue;
+				const c = this.curveOf ? this.curveOf(l, a, b) : linkCurve(a, b);
+				flow.push({
+					pts: c.pts,
+					color: LINK_STYLE[l.type]?.color ?? "#A8A8A8",
+					phase: fi++ * .37 % 1
+				});
+			}
+			this.flow = flow;
+		} else this.linksFlow.clear();
 		const labeled = /* @__PURE__ */ new Set();
 		if (this.selected && !this.dragging) for (const l of this.linksByBlock.get(this.selected) ?? []) labeled.add(l);
 		if (this.hovered) labeled.add(this.hovered);

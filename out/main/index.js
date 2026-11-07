@@ -3244,23 +3244,36 @@ function roundCorners(c) {
 	return out;
 }
 /**
-* Нитка с коленом в trunk (x для горизонтальной, y для вертикальной):
-* corners — опорные точки ломаной (для обхода карточек), pts — она же со скруглёнными углами (для рисования).
+* Нитка — кубическая кривая Безье (Miro/FigJam): «рукава» контрольных точек вдоль стороны выхода.
+* pts — та же кривая, разбитая на ломаную (для пунктира, подписи и снапшотов).
 */
 function makeCurve(r, trunk = r.mid) {
 	const { sx, sy, ex, ey } = r;
-	let corners;
-	if (r.horizontal) corners = Math.abs(sy - ey) < .5 ? [sx, sy, ex, ey] : [sx, sy, trunk, sy, trunk, ey, ex, ey];
-	else corners = Math.abs(sx - ex) < .5 ? [sx, sy, ex, ey] : [sx, sy, sx, trunk, ex, trunk, ex, ey];
+	const adx = r.horizontal ? r.dir : 0;
+	const ady = r.horizontal ? 0 : r.dir;
+	const dist = Math.hypot(ex - sx, ey - sy);
+	const k = Math.min(170, Math.max(40, dist * .45));
+	const c1x = sx + adx * k, c1y = sy + ady * k;
+	const c2x = ex - adx * k, c2y = ey - ady * k;
+	const pts = [];
+	if (Math.abs(r.horizontal ? sy - ey : sx - ex) < .5) pts.push(sx, sy, ex, ey);
+	else for (let i = 0; i <= 22; i++) {
+		const t = i / 22, u = 1 - t;
+		pts.push(u * u * u * sx + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * ex, u * u * u * sy + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * ey);
+	}
 	return {
 		sx,
 		sy,
 		ex,
 		ey,
-		adx: r.horizontal ? r.dir : 0,
-		ady: r.horizontal ? 0 : r.dir,
-		corners,
-		pts: roundCorners(corners)
+		adx,
+		ady,
+		c1x,
+		c1y,
+		c2x,
+		c2y,
+		corners: [sx, sy, ex, ey],
+		pts
 	};
 }
 function linkCurve(a, b) {
@@ -3395,11 +3408,14 @@ var LinkRouter = class {
 /** Границы связи (колено всегда между концами) с запасом — для индексов тайлов и отсечения. */
 function routedBounds(a, b) {
 	const r = linkRoute(a, b);
+	const k = Math.min(170, Math.max(40, Math.hypot(r.ex - r.sx, r.ey - r.sy) * .45)) + 40;
+	const adx = r.horizontal ? r.dir : 0;
+	const ady = r.horizontal ? 0 : r.dir;
 	return {
-		x0: Math.min(r.sx, r.ex) - 40,
-		y0: Math.min(r.sy, r.ey) - 40,
-		x1: Math.max(r.sx, r.ex) + 40,
-		y1: Math.max(r.sy, r.ey) + 40
+		x0: Math.min(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
+		y0: Math.min(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k),
+		x1: Math.max(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
+		y1: Math.max(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k)
 	};
 }
 //#endregion
