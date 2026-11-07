@@ -125,6 +125,14 @@ var MIGRATIONS = [`
   ALTER TABLE blocks ADD COLUMN h INTEGER;
   `, `
   DELETE FROM meta WHERE key = 'vault';
+  `, `
+  ALTER TABLE boards ADD COLUMN shared_at INTEGER;
+  CREATE TABLE IF NOT EXISTS sync_tombstones (
+    kind TEXT NOT NULL,
+    id   TEXT NOT NULL,
+    at   INTEGER NOT NULL,
+    PRIMARY KEY (kind, id)
+  );
   `];
 //#endregion
 //#region src/shared/db/open.ts
@@ -154,6 +162,11 @@ function write(db, fn) {
 		db.exec(`UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'revision'`);
 		return result;
 	});
+}
+/** Надгробие для синхронизации: сущность удалена хард-делитом — не воскрешать при pull. */
+function tombstone(db, kind, id, at = Date.now()) {
+	db.prepare(`INSERT INTO sync_tombstones (kind, id, at) VALUES (?, ?, ?)
+		ON CONFLICT (kind, id) DO UPDATE SET at = excluded.at`).run(kind, id, at);
 }
 function tx(db, fn) {
 	db.exec("BEGIN IMMEDIATE");
@@ -646,7 +659,7 @@ function updateTag(db, id, patch) {
 }
 //#endregion
 //#region src/shared/db/boards.ts
-var COLS = `id, name, sort_order AS sortOrder, project_dir AS projectDir, created_at AS createdAt, updated_at AS updatedAt`;
+var COLS = `id, name, sort_order AS sortOrder, project_dir AS projectDir, created_at AS createdAt, updated_at AS updatedAt, shared_at AS sharedAt`;
 function listBoards(db) {
 	return db.prepare(`SELECT ${COLS} FROM boards WHERE deleted_at IS NULL ORDER BY sort_order, created_at`).all();
 }
@@ -1223,6 +1236,7 @@ function deleteComment(db, id) {
 	write(db, () => {
 		const row = db.prepare(`SELECT block_id AS blockId FROM comments WHERE id = ?`).get(id);
 		db.prepare(`DELETE FROM comments WHERE id = ?`).run(id);
+		tombstone(db, "comments", id);
 		if (row) reindexBlock(db, row.blockId);
 	});
 }
@@ -1258,7 +1272,10 @@ function updateChecklistItem(db, id, patch) {
 	});
 }
 function deleteChecklistItem(db, id) {
-	write(db, () => db.prepare(`DELETE FROM checklist_items WHERE id = ?`).run(id));
+	write(db, () => {
+		db.prepare(`DELETE FROM checklist_items WHERE id = ?`).run(id);
+		tombstone(db, "checklist_items", id);
+	});
 }
 var ATT_COLS = `id, block_id AS blockId, kind, name, url, path, language, content,
   created_by AS createdBy, created_at AS createdAt`;
@@ -1293,6 +1310,7 @@ function deleteAttachment(db, id) {
 	return write(db, () => {
 		const row = db.prepare(`SELECT path FROM attachments WHERE id = ?`).get(id);
 		db.prepare(`DELETE FROM attachments WHERE id = ?`).run(id);
+		tombstone(db, "attachments", id);
 		return row?.path ?? null;
 	});
 }
@@ -2049,6 +2067,7 @@ function readOrg(dir) {
 			notes: Array.isArray(f.notes) ? f.notes.filter((x) => typeof x === "string") : []
 		})) : [],
 		pinnedFolders: Array.isArray(groups.pinnedFolders) ? groups.pinnedFolders.filter((x) => typeof x === "string") : [],
+		shared: readSharedNotes(dir),
 		groups: Array.isArray(groups.groups) ? groups.groups.filter((g) => g && typeof g.id === "string" && typeof g.name === "string").map((g) => ({
 			id: g.id,
 			name: g.name,
@@ -3537,9 +3556,290 @@ var Agents = class {
 //#endregion
 //#region src/main/ipc.ts
 /** Белый список методов, доступных renderer'у. Автор всех изменений из UI — владелец. */
+//#region src/main/sync.ts
+/** Синхронизация общих досок и заметок (фаза C). Дизайн: src/DESIGN-sync.md.
+* Полное сравнение (объёмы малы), LWW по version = updated_at ?? created_at ?? 0,
+* для строк без времён (tags, block_tags, checklist) — побеждает пуш при различии.
+* Хард-делиты детей (комментарии, чек-листы, вложения) покрыты sync_tombstones. */
+var syncCtx = null;
+var syncBusy = false;
+var SYNC_KINDS = {
+	blocks: { sql: `SELECT * FROM blocks WHERE board_id = ?`, id: (r) => r.id, ver: (r) => r.updated_at ?? r.created_at ?? 0, del: (r) => r.deleted_at != null },
+	links: { sql: `SELECT * FROM links WHERE board_id = ?`, id: (r) => r.id, ver: (r) => r.created_at ?? 0, del: (r) => r.deleted_at != null },
+	tags: { sql: `SELECT * FROM tags WHERE board_id = ?`, id: (r) => r.id, ver: () => 0, del: () => false },
+	block_tags: { sql: `SELECT block_id, tag_id FROM block_tags WHERE block_id IN (SELECT id FROM blocks WHERE board_id = ?)`, id: (r) => `${r.block_id}/${r.tag_id}`, ver: () => 0, del: () => false },
+	comments: { sql: `SELECT c.* FROM comments c JOIN blocks b ON b.id = c.block_id WHERE b.board_id = ?`, id: (r) => r.id, ver: (r) => r.created_at ?? 0, del: () => false },
+	checklist_items: { sql: `SELECT ci.* FROM checklist_items ci JOIN blocks b ON b.id = ci.block_id WHERE b.board_id = ?`, id: (r) => r.id, ver: () => 0, del: () => false },
+	attachments: { sql: `SELECT a.* FROM attachments a JOIN blocks b ON b.id = a.block_id WHERE b.board_id = ?`, id: (r) => r.id, ver: (r) => r.created_at ?? 0, del: () => false }
+};
+/** Таблицы детей с хард-делитом: строки из надгробий уходят на сервер как удалённые. */
+var SYNC_TOMBSTONED = new Set(["comments", "checklist_items", "attachments"]);
+var SYNC_FILE = {
+	note: (name) => `notes/${name}.md`,
+	asset: (name, rel) => `notes/_assets/${name}/${rel}`,
+	attach: (boardId, rel) => `attach/${boardId}/${rel}`
+};
+function readSyncCfg(d) {
+	const get = (k) => d.prepare(`SELECT value FROM meta WHERE key = ?`).get(k)?.value ?? null;
+	return { server: get("sync_server"), login: get("sync_login"), token: get("sync_token"), lastRun: Number(get("sync_last_run")) || 0 };
+}
+function setSyncMeta(d, kv) {
+	write(d, () => {
+		for (const [k, v] of Object.entries(kv)) d.prepare(`INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`).run(k, String(v));
+	});
+}
+function readSharedNotes(dir) {
+	try {
+		const j = JSON.parse(readFileSync(join(dir, META_DIR, "shared.json"), "utf8"));
+		return Array.isArray(j.notes) ? j.notes.filter((x) => typeof x === "string") : [];
+	} catch { return []; }
+}
+function writeSharedNotes(dir, notes) {
+	atomicWrite(join(dir, META_DIR, "shared.json"), JSON.stringify({ notes }, null, 2) + "\n");
+}
+/** Экспорт общего состояния доски для сервера. */
+function exportBoard(d, boardId) {
+	const board = d.prepare(`SELECT * FROM boards WHERE id = ?`).get(boardId);
+	if (!board) return null;
+	const rows = {};
+	for (const [kind, spec] of Object.entries(SYNC_KINDS)) {
+		const map = {};
+		for (const r of d.prepare(spec.sql).all(boardId)) map[spec.id(r)] = { json: r, version: spec.ver(r), deleted: spec.del(r) };
+		if (SYNC_TOMBSTONED.has(kind)) for (const t of d.prepare(`SELECT id, at FROM sync_tombstones WHERE kind = ?`).all(kind)) {
+			const cur = map[t.id];
+			if (!cur) map[t.id] = { json: null, version: t.at, deleted: true };
+			else if (t.at > cur.version) map[t.id] = { json: null, version: t.at, deleted: true };
+		}
+		rows[kind] = map;
+	}
+	return { board: { id: boardId, json: board, version: board.updated_at ?? 0, deleted: board.deleted_at != null }, rows };
+}
+/** Вставка/обновление строки от сервера. Для blocks/links живые строки переиндексируются. */
+function upsertRow(d, kind, row) {
+	if (!row || !row.json) return;
+	const cols = Object.keys(row.json);
+	if (!cols.length) return;
+	const table = kind === "block_tags" ? "block_tags" : kind;
+	const names = cols.map((c) => `"${c}"`).join(", ");
+	const qs = cols.map(() => "?").join(", ");
+	let sql = `INSERT OR REPLACE INTO ${table} (${names}) VALUES (${qs})`;
+	if (kind === "block_tags") sql = `INSERT OR REPLACE INTO block_tags (block_id, tag_id) VALUES (?, ?)`;
+	write(d, () => {
+		if (kind === "block_tags") d.prepare(sql).run(row.json.block_id, row.json.tag_id);
+		else d.prepare(sql).run(...cols.map((c) => row.json[c] ?? null));
+		if (kind === "blocks" || kind === "links") reindexBlock(d, row.json.id);
+	});
+}
+function hardDeleteRow(d, kind, rowId) {
+	write(d, () => {
+		if (kind === "block_tags") {
+			const [blockId, tagId] = String(rowId).split("/");
+			d.prepare(`DELETE FROM block_tags WHERE block_id = ? AND tag_id = ?`).run(blockId, tagId);
+		} else d.prepare(`DELETE FROM ${kind} WHERE id = ?`).run(rowId);
+	});
+}
+/** Применить серверное состояние доски локально (новая доска или построчный LWW). Вернуть число изменений. */
+function mergeBoard(d, remote, localExists) {
+	let changed = 0;
+	if (!localExists) {
+		const b = remote.board;
+		upsertRow(d, "boards", { json: b.json });
+		changed++;
+	}
+	for (const [kind, rows] of Object.entries(remote.rows ?? {})) {
+		const spec = SYNC_KINDS[kind];
+		if (!spec) continue;
+		for (const [rowId, row] of Object.entries(rows)) {
+			const tomb = d.prepare(`SELECT at FROM sync_tombstones WHERE kind = ? AND id = ?`).get(kind, rowId)?.at ?? 0;
+			const localRow = spec && localExists ? (d.prepare(specByRow(kind, rowId)).get(rowId) ?? null) : null;
+			const localVer = localRow ? spec.ver(localRow) : -1;
+			if (row.deleted) {
+				if (localRow && !localDel && row.version > localVer && tomb < row.version) {
+					if (kind === "blocks" || kind === "links") {
+						write(d, () => d.prepare(`UPDATE ${kind} SET deleted_at = ? WHERE id = ?`).run(row.version, rowId));
+						if (kind === "blocks") reindexBlock(d, rowId);
+					} else hardDeleteRow(d, kind, rowId);
+					changed++;
+				}
+				continue;
+			}
+			if (tomb > (row.version ?? 0)) continue;
+			if (!localRow || (row.version ?? 0) > localVer) {
+				upsertRow(d, kind, row);
+				changed++;
+			}
+		}
+	}
+	return changed;
+}
+function specByRow(kind, rowId) {
+	switch (kind) {
+		case "blocks": return `SELECT * FROM blocks WHERE id = ?`;
+		case "links": return `SELECT * FROM links WHERE id = ?`;
+		case "tags": return `SELECT * FROM tags WHERE id = ?`;
+		case "comments": return `SELECT * FROM comments WHERE id = ?`;
+		case "checklist_items": return `SELECT * FROM checklist_items WHERE id = ?`;
+		case "attachments": return `SELECT * FROM attachments WHERE id = ?`;
+		case "block_tags": return `SELECT block_id, tag_id FROM block_tags WHERE block_id || '/' || tag_id = ?`;
+	}
+	return `SELECT 1 AS x WHERE 0`;
+}
+function sha256File(file) {
+	return createHash("sha256").update(readFileSync(file)).digest("hex");
+}
+function walkFiles(dir, base = dir, out = []) {
+	for (const e of readdirSync(dir, { withFileTypes: true })) {
+		if (e.name.startsWith(".")) continue;
+		const p = join(dir, e.name);
+		if (e.isDirectory()) walkFiles(p, base, out);
+		else out.push({ abs: p, rel: relative(base, p).split(sep).join("/") });
+	}
+	return out;
+}
+/** Заметки и файлы: заметка .md, её ассеты, вложения общих досок. LWW по mtime, блобы по sha256. */
+async function syncFiles(state, headers, cfg, ctx) {
+	const notesDir = ctx.notes.store.dir;
+	const shared = readSharedNotes(notesDir);
+	const local = new Map();
+	for (const name of shared) {
+		const noteFile = join(notesDir, `${name}.md`);
+		if (existsSync(noteFile)) local.set(SYNC_FILE.note(name), { abs: noteFile, mtime: statSync(noteFile).mtimeMs });
+		const assetDir = join(notesDir, ASSETS_DIR, name);
+		if (existsSync(assetDir)) for (const f of walkFiles(assetDir)) local.set(SYNC_FILE.asset(name, f.rel), { abs: f.abs, mtime: statSync(f.abs).mtimeMs });
+	}
+	for (const bId of sharedBoardIds(syncCtx)) {
+		const dir = join(ctx.dataDir, "attachments", bId);
+		if (existsSync(dir)) for (const f of walkFiles(dir)) local.set(SYNC_FILE.attach(bId, f.rel), { abs: f.abs, mtime: statSync(f.abs).mtimeMs });
+	}
+	const remote = state.files ?? {};
+	const pushFiles = [];
+	let applied = 0;
+	const blobPut = async (abs) => {
+		const buf = readFileSync(abs);
+		const sha = createHash("sha256").update(buf).digest("hex");
+		await net.fetch(`${cfg.server}/blob/${sha}`, { method: "PUT", headers: { ...headers, "content-type": "application/octet-stream" }, body: buf });
+		return sha;
+	};
+	// локальные новее/отсутствуют на сервере — пушим
+	for (const [path, info] of local) {
+		const r = remote[path];
+		if (!r || r.deleted || r.sha256 !== sha256File(info.abs)) {
+			const sha = await blobPut(info.abs);
+			if (!r || r.mtime === undefined || info.mtime > r.mtime || r.deleted || r.sha256 !== sha) pushFiles.push({ path, sha256: sha, size: statSync(info.abs).size, mtime: Math.round(info.mtime), deleted: false });
+		}
+	}
+	// серверные: скачать чужие новые, удалить исчезнувшие
+	for (const [path, r] of Object.entries(remote)) {
+		if (r.deleted) continue;
+		const info = local.get(path);
+		if (!info) {
+			if (!isOurPath(path, shared, ctx)) continue;
+			const res = await net.fetch(`${cfg.server}/blob/${r.sha256}`, { headers });
+			if (!res.ok) continue;
+			const abs = localPathFor(path, notesDir, ctx);
+			if (!abs) continue;
+			mkdirSync(dirname(abs), { recursive: true });
+			writeFileSync(abs, Buffer.from(await res.arrayBuffer()));
+			applied++;
+		} else if (r.sha256 !== sha256File(info.abs)) {
+			if ((r.mtime ?? 0) > Math.round(info.mtime)) {
+				const res = await net.fetch(`${cfg.server}/blob/${r.sha256}`, { headers });
+				if (res.ok) {
+					writeFileSync(info.abs, Buffer.from(await res.arrayBuffer()));
+					applied++;
+				}
+			}
+		}
+	}
+	// локально удалённые общие заметки — разнести удаление
+	for (const name of shared) {
+		const path = SYNC_FILE.note(name);
+		if (!existsSync(join(notesDir, `${name}.md`)) && remote[path] && !remote[path].deleted) pushFiles.push({ path, sha256: remote[path].sha256, mtime: Date.now(), deleted: true });
+	}
+	if (pushFiles.length) await net.fetch(`${cfg.server}/sync/files`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ files: pushFiles }) });
+	return { pushed: pushFiles.length, applied };
+}
+function sharedBoardIds(ctx) {
+	return ctx.db.prepare(`SELECT id FROM boards WHERE shared_at IS NOT NULL AND deleted_at IS NULL`).all().map((r) => r.id);
+}
+function isOurPath(path, shared, ctx) {
+	return path.startsWith("notes/") || path.startsWith("attach/");
+}
+function localPathFor(path, notesDir, ctx) {
+	if (path.startsWith("notes/")) {
+		const rel = path.slice("notes/".length);
+		if (rel.startsWith("_assets/")) return join(notesDir, ASSETS_DIR, ...rel.slice("_assets/".length).split("/"));
+		return join(notesDir, rel);
+	}
+	if (path.startsWith("attach/")) {
+		const rel = path.slice("attach/".length);
+		return join(ctx.dataDir, "attachments", ...rel.split("/"));
+	}
+	return null;
+}
+/** Полный цикл: pull → merge → push. Идемпотентен. */
+async function runSync(reason) {
+	if (!syncCtx || syncBusy) return { busy: true };
+	const cfg = readSyncCfg(syncCtx.db);
+	if (!cfg.server || !cfg.token) return { skipped: true };
+	syncBusy = true;
+	try {
+		const headers = { authorization: `Bearer ${cfg.token}` };
+		const res = await net.fetch(`${cfg.server}/sync/state`, { headers, signal: AbortSignal.timeout(15000) });
+		if (!res.ok) throw new Error(`состояние: HTTP ${res.status}`);
+		const state = await res.json();
+		const d = syncCtx.db;
+		const localShared = d.prepare(`SELECT id FROM boards WHERE shared_at IS NOT NULL AND deleted_at IS NULL`).all().map((r) => r.id);
+		let appliedBoards = 0;
+		for (const [id, remote] of Object.entries(state.boards ?? {})) {
+			const existsLocally = !!d.prepare(`SELECT 1 FROM boards WHERE id = ?`).get(id);
+			const iShared = localShared.includes(id);
+			if (remote.board?.deleted) {
+				if (existsLocally && iShared) {
+					write(d, () => d.prepare(`UPDATE boards SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`).run(remote.board.version ?? Date.now(), id));
+					appliedBoards++;
+				}
+				continue;
+			}
+			if (!existsLocally || !iShared) {
+				if (!existsLocally) {
+					mergeBoard(d, remote, false);
+					appliedBoards++;
+				}
+				continue;
+			}
+			const n = mergeBoard(d, remote, true);
+			appliedBoards += n;
+		}
+		const pushBoards = localShared.filter((id) => !state.boards?.[id]?.board?.deleted).map((id) => exportBoard(d, id)).filter(Boolean);
+		if (pushBoards.length) await net.fetch(`${cfg.server}/sync/boards`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ boards: pushBoards }), signal: AbortSignal.timeout(30000) });
+		const files = await syncFiles(state, headers, cfg, syncCtx);
+		setSyncMeta(d, { sync_last_run: Date.now() });
+		const summary = { reason, boards: appliedBoards, notes: files.applied, filesPushed: files.pushed, at: Date.now() };
+		for (const w of BrowserWindow.getAllWindows()) w.webContents.send?.("sync:done", summary);
+		return summary;
+	} catch (e) {
+		const err = { reason, error: String(e?.message ?? e), at: Date.now() };
+		for (const w of BrowserWindow.getAllWindows()) w.webContents.send?.("sync:error", err);
+		return err;
+	} finally {
+		syncBusy = false;
+	}
+}
+//#endregion
 //#region src/main/updater.ts
 /** Канал обновлений (фаза B): свой сервер в Tailscale; обновление = подмена app.asar с бэкапом. */
 var UPDATE_URL = process.env.ARIADNE_UPDATE_URL || "http://100.68.27.113:3010";
+var trimSlash = (s) => String(s || "").replace(/\/+$/, "");
+async function loginAndSave(db, server, login, password) {
+	const url = `${trimSlash(server)}/auth`;
+	const r = await net.fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ login, password }), signal: AbortSignal.timeout(8000) });
+	if (!r.ok) throw new Error(r.status === 404 ? "Аккаунта ещё нет — создайте его" : r.status === 403 ? "Неверный логин или пароль" : `Сервер: ${r.status}`);
+	const { token } = await r.json();
+	setSyncMeta(db, { sync_server: trimSlash(server), sync_login: login, sync_token: token });
+	runSync("login").catch(() => {});
+	return { ok: true };
+}
 function semverGt(a, b) {
 	const pa = String(a).split(".").map(Number);
 	const pb = String(b).split(".").map(Number);
@@ -3609,6 +3909,7 @@ function registerIpc(ctx) {
 	const agents = new Agents(db, ctx.dataDir);
 	const S = (dir) => ctx.notes.storeFor(dir);
 	let sender = null;
+	syncCtx = ctx;
 	const test = () => {
 		if (!ctx.flags.shots) throw new Error("Только в режиме проверки");
 	};
@@ -3956,6 +4257,34 @@ function registerIpc(ctx) {
 		launchFlags: () => ctx.flags,
 		updatesCheck: () => checkUpdate(),
 		updatesApply: () => applyUpdate((p) => sender?.webContents?.send("update:progress", p)),
+		syncStatus: () => {
+			const c = readSyncCfg(db);
+			return { configured: !!c.token, server: c.server, login: c.login, lastRun: c.lastRun };
+		},
+		syncRegister: async (server, login, password) => {
+			const r = await net.fetch(`${trimSlash(server)}/register`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ login, password }), signal: AbortSignal.timeout(8000) });
+			if (!r.ok) throw new Error(r.status === 409 ? "Аккаунт уже создан — войдите" : `Сервер: ${r.status}`);
+			return await loginAndSave(db, server, login, password);
+		},
+		syncLogin: (server, login, password) => loginAndSave(db, server, login, password),
+		syncLogout: () => {
+			setSyncMeta(db, { sync_token: "" });
+			return true;
+		},
+		syncNow: () => runSync("manual"),
+		boardShare: (boardId) => {
+			requireBoard(db, boardId);
+			write(db, () => db.prepare(`UPDATE boards SET shared_at = ? WHERE id = ?`).run(Date.now(), boardId));
+			runSync("share").catch(() => {});
+			return readSyncCfg(db).token ? true : false;
+		},
+		noteShare: (name) => {
+			const dir = ctx.notes.store.dir;
+			const shared = readSharedNotes(dir);
+			if (!shared.includes(name)) writeSharedNotes(dir, [...shared, name]);
+			runSync("share").catch(() => {});
+			return readSyncCfg(db).token ? true : false;
+		},
 		reportBench: (result) => ctx.onBench(result),
 		capture: (name, titlePart) => ctx.capture(name, titlePart)
 	};
@@ -4594,6 +4923,9 @@ function openMain(note) {
 			});
 		}).catch(() => {});
 	}, 2500);
+	/** Синхронизация общих досок/заметок: на старте и каждые 10 минут. */
+	setTimeout(() => runSync("start").catch(() => {}), 6000);
+	setInterval(() => runSync("timer").catch(() => {}), 10 * 60 * 1000).unref?.();
 }
 /**
 * Компактное окно одной заметки (ТЗ заметок §6): без досок и холста — отдельная лёгкая страница.

@@ -114,6 +114,13 @@ var api = Object.fromEntries([
 	"launchFlags",
 	"updatesCheck",
 	"updatesApply",
+	"syncStatus",
+	"syncRegister",
+	"syncLogin",
+	"syncLogout",
+	"syncNow",
+	"boardShare",
+	"noteShare",
 	"reportBench",
 	"capture"
 ].map((m) => [m, call(m)]));
@@ -141,6 +148,16 @@ api.onUpdateProgress = (cb) => {
 	const listener = (_e, p) => cb(p);
 	electron.ipcRenderer.on("update:progress", listener);
 	return () => electron.ipcRenderer.removeListener("update:progress", listener);
+};
+api.onSyncDone = (cb) => {
+	const listener = (_e, s) => cb(s);
+	electron.ipcRenderer.on("sync:done", listener);
+	return () => electron.ipcRenderer.removeListener("sync:done", listener);
+};
+api.onSyncError = (cb) => {
+	const listener = (_e, s) => cb(s);
+	electron.ipcRenderer.on("sync:error", listener);
+	return () => electron.ipcRenderer.removeListener("sync:error", listener);
 };
 api.filePathOf = (file) => electron.webUtils.getPathForFile(file);
 electron.contextBridge.exposeInMainWorld("api", api);

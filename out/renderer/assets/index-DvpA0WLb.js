@@ -256,6 +256,35 @@ var __iconData$24f = {
 __iconData$24f.node;
 var Folder = createLucideIcon(__iconData$24f);
 //#endregion
+//#region node_modules/lucide-react/dist/esm/icons/users.mjs
+/**
+* @license lucide-react v1.59.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var __iconData$24u = {
+	name: "users",
+	size: 24,
+	node: [["path", {
+		d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2",
+		key: "k24u1"
+	}], ["circle", {
+		cx: 9,
+		cy: 7,
+		r: 4,
+		key: "k24u2"
+	}], ["path", {
+		d: "M22 21v-2a4 4 0 0 0-3-3.87",
+		key: "k24u3"
+	}], ["path", {
+		d: "M16 3.13a4 4 0 0 1 0 7.75",
+		key: "k24u4"
+	}]]
+};
+__iconData$24u.node;
+var Users = createLucideIcon(__iconData$24u);
+//#endregion
 //#region node_modules/lucide-react/dist/esm/icons/funnel.mjs
 /**
 * @license lucide-react v1.59.0 - ISC
@@ -35624,7 +35653,7 @@ function Sidebar(props) {
 						}
 					}, b.id);
 					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "sidebar-item board-item" + (active ? " active" : "") + (dragId === b.id ? " dragging" : "") + dropCls,
+						className: "sidebar-item board-item" + (active ? " active" : "") + (b.sharedAt ? " shared" : "") + (dragId === b.id ? " dragging" : "") + dropCls,
 						draggable: true,
 						onClick: () => props.onSelect(b.id),
 						onDoubleClick: () => setRenaming(b.id),
@@ -35658,7 +35687,11 @@ function Sidebar(props) {
 							setDrop(null);
 						},
 						title: b.name,
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						children: [b.sharedAt && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, {
+							size: 13,
+							className: "shared-mark",
+							"aria-label": t.settings.acc.sharedLabel
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 							className: "board-name",
 							children: b.name
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -35715,6 +35748,18 @@ function Sidebar(props) {
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pencil, { size: 14 }),
 							" ",
 							t.sidebar.rename
+						]
+					}),
+					!props.boards.find((x) => x.id === menu.id)?.sharedAt && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						className: "type-menu-item",
+						onClick: () => (props.onShare(menu.id), setMenu(null)),
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { size: 14 }),
+							" ",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "link-picker-label",
+								children: t.settings.acc.makeShared
+							})
 						]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
@@ -36317,9 +36362,29 @@ function SettingsDialog(props) {
 	const [written, setWritten] = (0, import_react.useState)("");
 	const [upd, setUpd] = (0, import_react.useState)(null);
 	const [updBusy, setUpdBusy] = (0, import_react.useState)(false);
+	const [acc, setAcc] = (0, import_react.useState)(null);
+	const [accBusy, setAccBusy] = (0, import_react.useState)(false);
+	const [accErr, setAccErr] = (0, import_react.useState)("");
+	const [accForm, setAccForm] = (0, import_react.useState)({ server: "http://100.68.27.113:3010", login: "", password: "" });
 	(0, import_react.useEffect)(() => {
 		window.api.updatesCheck().then(setUpd, () => setUpd(null));
+		window.api.syncStatus().then((s) => {
+			setAcc(s);
+			if (s.server) setAccForm((f) => ({ ...f, server: s.server, login: s.login ?? f.login }));
+		}, () => setAcc(null));
 	}, []);
+	const accRun = async (fn) => {
+		setAccErr("");
+		setAccBusy(true);
+		try {
+			await fn();
+			setAcc(await window.api.syncStatus());
+		} catch (e) {
+			setAccErr(String(e.message).replace(/^Error invoking remote method 'db': (Error: )?/, ""));
+		} finally {
+			setAccBusy(false);
+		}
+	};
 	const checkUpdates = async () => {
 		setUpdBusy(true);
 		try {
@@ -36405,6 +36470,93 @@ function SettingsDialog(props) {
 										children: S.upd.apply
 									})
 								]
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+						className: "settings-section",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { children: S.acc.title }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "hint",
+								children: S.acc.hint
+							}),
+							acc?.configured ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "agent-row",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+											className: "agent-main",
+											children: S.acc.signedAs(acc.login ?? "")
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											className: "mini-btn",
+											disabled: accBusy,
+											onClick: () => accRun(() => window.api.syncNow()),
+											children: S.acc.syncNow
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											className: "mini-btn",
+											disabled: accBusy,
+											onClick: () => accRun(async () => {
+												await window.api.syncLogout();
+											}),
+											children: S.acc.logout
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "hint",
+									children: S.acc.lastSync(acc.lastRun ? new Date(acc.lastRun).toLocaleString() : S.acc.never)
+								})
+							] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "acc-form",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											className: "input",
+											placeholder: S.acc.server,
+											value: accForm.server,
+											onChange: (e) => setAccForm({ ...accForm, server: e.target.value })
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											className: "input",
+											placeholder: S.acc.login,
+											value: accForm.login,
+											autoComplete: "off",
+											onChange: (e) => setAccForm({ ...accForm, login: e.target.value })
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											className: "input",
+											type: "password",
+											placeholder: S.acc.password,
+											value: accForm.password,
+											autoComplete: "off",
+											onChange: (e) => setAccForm({ ...accForm, password: e.target.value })
+										})
+									]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "modal-actions",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											className: "btn",
+											disabled: accBusy || !accForm.login || !accForm.password,
+											onClick: () => accRun(() => window.api.syncRegister(accForm.server, accForm.login, accForm.password)),
+											children: S.acc.create
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											className: "btn primary",
+											disabled: accBusy || !accForm.login || !accForm.password,
+											onClick: () => accRun(() => window.api.syncLogin(accForm.server, accForm.login, accForm.password)),
+											children: S.acc.signIn
+										})
+									]
+								})
+							] }),
+							accErr && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "error",
+								children: accErr
 							})
 						]
 					}),
@@ -37730,6 +37882,10 @@ function NotesSidebar(props) {
 			children: [r.pinned && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pin, {
 				size: 13,
 				className: "note-pin"
+			}), props.org.shared?.includes(n.name) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, {
+				size: 13,
+				className: "shared-mark",
+				"aria-label": t.settings.acc.sharedLabel
 			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 				className: "board-name",
 				children: n.name
@@ -38011,6 +38167,7 @@ function NotesSidebar(props) {
 							] })
 						})]
 					}),
+					!props.org.shared?.includes(menuNote.name) && item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Users, { size: 14 }), t.settings.acc.makeShared, () => (setMenu(null), props.onShare(menuNote.name))),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "menu-sep" }),
 					item(/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash, { size: 14 }), MN.delete, () => (setMenu(null), props.onDelete(menuNote.name)), {
 						kbd: "D",
@@ -38175,7 +38332,8 @@ function NotesSection(props) {
 		folders: [],
 		pinnedFolders: [],
 		groups: [],
-		free: []
+		free: [],
+		shared: []
 	});
 	const handle = (0, import_react.useRef)(null);
 	const reload = (0, import_react.useCallback)(async () => {
@@ -38325,6 +38483,7 @@ function NotesSection(props) {
 			onGroupPlace: (id, before, after) => orgDo(window.api.notesGroupPlace(id, before, after)),
 			onFolderPlace: (id, before, after) => orgDo(window.api.notesFolderPlace(id, before, after)),
 			onOpenWindow: (name) => window.api.openNoteWindow(name),
+			onShare: props.onShare,
 			onAddFiles: addFiles
 		}),
 		addAsk && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -38451,6 +38610,7 @@ function App() {
 	const [filter, setFilter] = (0, import_react.useState)(EMPTY_FILTER);
 	const [minimapOpen, setMinimapOpen] = (0, import_react.useState)(false);
 	const [update, setUpdate] = (0, import_react.useState)(null);
+	const [shareAsk, setShareAsk] = (0, import_react.useState)(null);
 	const [section, setSection] = (0, import_react.useState)(savedSection);
 	const sectionRef = (0, import_react.useRef)(section);
 	sectionRef.current = section;
@@ -38503,6 +38663,30 @@ function App() {
 		reloadTrash
 	]);
 	(0, import_react.useEffect)(() => window.api.onUpdateAvailable((info) => setUpdate(info)), []);
+	(0, import_react.useEffect)(() => window.api.onSyncDone((s) => {
+		if ((s.boards ?? 0) + (s.notes ?? 0) > 0 || s.reason === "manual" || s.reason === "share") toast(t.settings.acc.syncToast(s.boards ?? 0, s.notes ?? 0));
+	}), []);
+	const shareBoard = (id) => {
+		const b = boards.find((x) => x.id === id);
+		if (b) setShareAsk({
+			kind: "board",
+			id,
+			name: b.name
+		});
+	};
+	const shareNote = (name) => setShareAsk({
+		kind: "note",
+		name
+	});
+	const confirmShare = async () => {
+		const ask = shareAsk;
+		setShareAsk(null);
+		const cfg = await window.api.syncStatus();
+		if (!cfg.configured) return toast(t.settings.acc.needAccount);
+		if (ask.kind === "board") await window.api.boardShare(ask.id);
+		else await window.api.noteShare(ask.name);
+		toast(t.settings.acc.sharedToast(ask.name));
+	};
 	const toggle = (o) => setOverlay((cur) => cur === o ? null : o);
 	(0, import_react.useEffect)(() => {
 		const onKey = (e) => {
@@ -38826,6 +39010,7 @@ function App() {
 			section === "notes" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(NotesSection, {
 				onSection: setSection,
 				onOpenSettings: () => setSettingsOpen(true),
+				onShare: shareNote,
 				reloadKey: notesReloadKey,
 				openRequest
 			}),
@@ -38843,7 +39028,8 @@ function App() {
 				onOpenTrash: async () => (await reloadTrash(), setTrashOpen((v) => !v)),
 				onLoadStand: loadStand,
 				onExport: exportPng,
-				onSection: setSection
+				onSection: setSection,
+				onShare: shareBoard
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
 				className: "main",
@@ -39073,6 +39259,39 @@ function App() {
 				version: update.version,
 				notes: update.notes,
 				onClose: () => setUpdate(null)
+			}),
+			shareAsk && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "modal-backdrop",
+				onPointerDown: (e) => e.target === e.currentTarget && setShareAsk(null),
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "modal attach-ask",
+					onPointerDown: (e) => e.stopPropagation(),
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "modal-title",
+							children: t.settings.acc.shareTitle
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							children: t.settings.acc.shareText(shareAsk.name)
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "modal-actions",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									className: "btn",
+									onClick: () => setShareAsk(null),
+									children: t.settings.acc.cancel
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									className: "btn primary",
+									autoFocus: true,
+									onClick: confirmShare,
+									children: t.settings.acc.shareYes
+								})
+							]
+						})
+					]
+				})
 			})
 		]
 	});
@@ -39775,6 +39994,7 @@ async function notesScenario() {
 		"Переименовать",
 		"Переместить в группу",
 		"Переместить в папку",
+		"Сделать совместной…",
 		"Удалить"
 	]));
 	check("З4: «Удалить» красным, перед ним разделитель", !!document.querySelector(".note-menu .menu-sep + .type-menu-item.danger"));
