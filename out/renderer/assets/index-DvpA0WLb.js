@@ -39055,6 +39055,7 @@ function App() {
 	(0, import_react.useEffect)(() => window.api.onSyncDone((s) => {
 		if ((s.boards ?? 0) + (s.notes ?? 0) > 0 || s.reason === "manual" || s.reason === "share") toast(t.settings.acc.syncToast(s.boards ?? 0, s.notes ?? 0));
 	}), []);
+	(0, import_react.useEffect)(() => window.api.onSyncError((e) => toast(t.settings.acc.syncErr(e.error ?? ""))), []);
 	const shareBoard = (id) => {
 		const b = boards.find((x) => x.id === id);
 		if (b) setShareAsk({

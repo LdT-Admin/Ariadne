@@ -3867,6 +3867,7 @@ function walkFiles(dir, base = dir, out = []) {
 async function syncFiles(state, headers, cfg, ctx) {
 	const notesDir = ctx.notes.store.dir;
 	const shared = readSharedNotes(notesDir);
+	console.error(`[sync] files: dir=${notesDir} shared=${JSON.stringify(shared)}`);
 	const local = new Map();
 	for (const name of shared) {
 		const noteFile = join(notesDir, `${name}.md`);
@@ -3884,7 +3885,7 @@ async function syncFiles(state, headers, cfg, ctx) {
 	const blobPut = async (abs) => {
 		const buf = readFileSync(abs);
 		const sha = createHash("sha256").update(buf).digest("hex");
-		await net.fetch(`${cfg.server}/blob/${sha}`, { method: "PUT", headers: { ...headers, "content-type": "application/octet-stream" }, body: buf });
+		await net.fetch(`${cfg.server}/blob/${sha}`, { method: "PUT", headers: { ...headers, "content-type": "application/octet-stream" }, body: buf, signal: AbortSignal.timeout(30000) });
 		return sha;
 	};
 	// локальные новее/отсутствуют на сервере — пушим
@@ -3901,7 +3902,7 @@ async function syncFiles(state, headers, cfg, ctx) {
 		const info = local.get(path);
 		if (!info) {
 			if (!isOurPath(path, shared, ctx)) continue;
-			const res = await net.fetch(`${cfg.server}/blob/${r.sha256}`, { headers });
+			const res = await net.fetch(`${cfg.server}/blob/${r.sha256}`, { headers, signal: AbortSignal.timeout(30000) });
 			if (!res.ok) continue;
 			const abs = localPathFor(path, notesDir, ctx);
 			if (!abs) continue;
@@ -3910,7 +3911,7 @@ async function syncFiles(state, headers, cfg, ctx) {
 			applied++;
 		} else if (r.sha256 !== sha256File(info.abs)) {
 			if ((r.mtime ?? 0) > Math.round(info.mtime)) {
-				const res = await net.fetch(`${cfg.server}/blob/${r.sha256}`, { headers });
+				const res = await net.fetch(`${cfg.server}/blob/${r.sha256}`, { headers, signal: AbortSignal.timeout(30000) });
 				if (res.ok) {
 					writeFileSync(info.abs, Buffer.from(await res.arrayBuffer()));
 					applied++;
@@ -3923,7 +3924,8 @@ async function syncFiles(state, headers, cfg, ctx) {
 		const path = SYNC_FILE.note(name);
 		if (!existsSync(join(notesDir, `${name}.md`)) && remote[path] && !remote[path].deleted) pushFiles.push({ path, sha256: remote[path].sha256, mtime: Date.now(), deleted: true });
 	}
-	if (pushFiles.length) await net.fetch(`${cfg.server}/sync/files`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ files: pushFiles }) });
+	if (pushFiles.length) await net.fetch(`${cfg.server}/sync/files`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ files: pushFiles }), signal: AbortSignal.timeout(30000) });
+	console.error(`[sync] files: local=${local.size} remote=${Object.keys(remote).length} push=${pushFiles.length}`);
 	return { pushed: pushFiles.length, applied };
 }
 function sharedBoardIds(ctx) {
