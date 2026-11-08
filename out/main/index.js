@@ -3162,26 +3162,24 @@ async function svgToPng(svg, wasmPath) {
 var CORNER_R = 16;
 var LINK_STUB = 24;
 /**
-* Нитка между карточками. Вариант 0/1 — по смещению центров (|dx|>=|dy| — вбок, иначе сверху/снизу),
-* варианты 2/3 — то же с выходом/входом с дальней стороны (обход).
+* Привязка связи. Ось — по доминирующему смещению центров; точки на гранях — проекция центра
+* соседнего блока (зажата в грань с отступом), поэтому нити выходят навстречу друг другу без петель.
+* Вариант 0 — основная ось, 1 — перпендикулярная, 2/3 — те же с дальней стороны (обход).
 */
 function linkRoute(a, b, variant = 0) {
 	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
 	const acx = a.x + aw / 2, acy = a.y + ah / 2;
 	const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
 	const dx = bcx - acx, dy = bcy - acy;
-	const axisH = variant < 2 ? Math.abs(dx) >= Math.abs(dy) : Math.abs(dx) < Math.abs(dy);
+	const horiz = variant < 2 ? Math.abs(dx) >= Math.abs(dy) : Math.abs(dx) < Math.abs(dy);
 	const flip = variant >= 2;
-	const dir = axisH ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
-	if (axisH) {
-		const sx = acx + (flip ? -dir : dir) * aw / 2;
-		const ex = bcx + (flip ? dir : -dir) * bw / 2;
-		let sy = acy, ey = bcy;
-		if (Math.abs(sy - ey) < 2 * CORNER_R) {
-			if (acy >= b.y && acy <= b.y + bh) ey = acy;
-			else if (bcy >= a.y && bcy <= a.y + ah) sy = bcy;
-		}
-		const mid = (sx + ex) / 2;
+	const dir = horiz ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
+	const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+	if (horiz) {
+		const sx = flip ? a.x + (dir > 0 ? 0 : aw) : a.x + (dir > 0 ? aw : 0);
+		const ex = flip ? b.x + (dir > 0 ? bw : 0) : b.x + (dir > 0 ? 0 : bw);
+		const sy = clamp(bcy, a.y + 12, a.y + ah - 12);
+		const ey = clamp(acy, b.y + 12, b.y + bh - 12);
 		return {
 			horizontal: true,
 			flip,
@@ -3190,19 +3188,19 @@ function linkRoute(a, b, variant = 0) {
 			sy,
 			ex,
 			ey,
-			mid,
-			lo: mid,
-			hi: mid
+			nx: flip ? -dir : dir,
+			ny: 0,
+			adx: flip ? -dir : dir,
+			ady: 0,
+			mid: (sx + ex) / 2,
+			lo: 0,
+			hi: 0
 		};
 	}
-	const sy = acy + (flip ? -dir : dir) * ah / 2;
-	const ey = bcy + (flip ? dir : -dir) * bh / 2;
-	let sx = acx, ex = bcx;
-	if (Math.abs(sx - ex) < 2 * CORNER_R) {
-		if (acx >= b.x && acx <= b.x + bw) ex = acx;
-		else if (bcx >= a.x && bcx <= a.x + aw) sx = bcx;
-	}
-	const mid = (sy + ey) / 2;
+	const sx = clamp(bcx, a.x + 12, a.x + aw - 12);
+	const ex = clamp(acx, b.x + 12, b.x + bw - 12);
+	const sy = flip ? a.y + (dir > 0 ? 0 : ah) : a.y + (dir > 0 ? ah : 0);
+	const ey = flip ? b.y + (dir > 0 ? bh : 0) : b.y + (dir > 0 ? 0 : bh);
 	return {
 		horizontal: false,
 		flip,
@@ -3211,11 +3209,16 @@ function linkRoute(a, b, variant = 0) {
 		sy,
 		ex,
 		ey,
-		mid,
-		lo: mid,
-		hi: mid
+		nx: 0,
+		ny: flip ? -dir : dir,
+		adx: 0,
+		ady: flip ? -dir : dir,
+		mid: (sy + ey) / 2,
+		lo: 0,
+		hi: 0
 	};
 }
+
 /** Скругление углов ломаной (плоский массив x,y): каждое колено — короткая квадратичная дуга. */
 function roundCorners(c) {
 	const n = c.length / 2;
