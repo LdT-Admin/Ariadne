@@ -33518,8 +33518,12 @@ function linkRoute(a, b, variant = 0) {
 			ey,
 			nx: flip ? -dir : dir,
 			ny: 0,
+			sdx: flip ? -dir : dir,
+			sdy: 0,
 			adx: flip ? -dir : dir,
 			ady: 0,
+			edx: flip ? -dir : dir,
+			edy: 0,
 			mid: (sx + ex) / 2,
 			lo: 0,
 			hi: 0
@@ -33539,13 +33543,61 @@ function linkRoute(a, b, variant = 0) {
 		ey,
 		nx: 0,
 		ny: flip ? -dir : dir,
+		sdx: 0,
+		sdy: flip ? -dir : dir,
 		adx: 0,
 		ady: flip ? -dir : dir,
+		edx: 0,
+		edy: flip ? -dir : dir,
 		mid: (sy + ey) / 2,
 		lo: 0,
 		hi: 0
 	};
 }
+var OPPOSITE = {
+	t: "b",
+	b: "t",
+	l: "r",
+	r: "l"
+};
+var SIDE_N = {
+	t: [0, -1],
+	b: [0, 1],
+	l: [-1, 0],
+	r: [1, 0]
+};
+/** Нитка с заданными сторонами (t/b/l/r): точки — проекция центра соседа, зажатая отступом 12. */
+function routeSides(a, b, ss, es) {
+	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
+	const acx = a.x + aw / 2, acy = a.y + ah / 2;
+	const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
+	const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+	const pt = (side, x, y, w, h, ox, oy) => side === "l" ? [x, clamp(oy, y + 12, y + h - 12)] : side === "r" ? [x + w, clamp(oy, y + 12, y + h - 12)] : side === "t" ? [clamp(ox, x + 12, x + w - 12), y] : [clamp(ox, x + 12, x + w - 12), y + h];
+	const [sx, sy] = pt(ss, a.x, a.y, aw, ah, bcx, bcy);
+	const [ex, ey] = pt(es, b.x, b.y, bw, bh, acx, acy);
+	const sn = SIDE_N[ss], en = SIDE_N[es];
+	return {
+		horizontal: ss === "l" || ss === "r",
+		flip: false,
+		dir: 1,
+		sx,
+		sy,
+		ex,
+		ey,
+		nx: sn[0],
+		ny: sn[1],
+		sdx: sn[0],
+		sdy: sn[1],
+		adx: -en[0],
+		ady: -en[1],
+		edx: -en[0],
+		edy: -en[1],
+		mid: (sx + ex) / 2,
+		lo: 0,
+		hi: 0
+	};
+}
+
 
 /** Скругление углов ломаной (плоский массив x,y): каждое колено — короткая квадратичная дуга. */
 function roundCorners(c) {
@@ -33577,9 +33629,8 @@ function roundCorners(c) {
 */
 function makeCurve(r) {
 	const { sx, sy, ex, ey } = r;
-	const arm = r.flip ? -r.dir : r.dir;
-	const sdx = r.horizontal ? arm : 0, sdy = r.horizontal ? 0 : arm;
-	const edx = r.horizontal ? arm : 0, edy = r.horizontal ? 0 : arm;
+	const sdx = r.sdx ?? 0, sdy = r.sdy ?? 0;
+	const edx = r.edx ?? r.adx ?? 0, edy = r.edy ?? r.ady ?? 0;
 	const dist = Math.hypot(ex - sx, ey - sy);
 	const k = Math.min(170, Math.max(40, dist * .45));
 	const c1x = sx + sdx * k, c1y = sy + sdy * k;
@@ -33704,6 +33755,7 @@ var LinkRouter = class {
 	grid = /* @__PURE__ */ new Map();
 	cache = /* @__PURE__ */ new Map();
 	cacheShallow = /* @__PURE__ */ new Map();
+	cacheSides = /* @__PURE__ */ new Map();
 	constructor(blocks) {
 		for (const b of blocks) {
 			const box = {
@@ -33762,6 +33814,16 @@ var LinkRouter = class {
 		if (bucket.size > GEO_CACHE) bucket.clear();
 		bucket.set(key, best);
 		return best;
+	}
+	/** Нитка с принудительными сторонами (кэш по сторонам). */
+	curveSides(aId, a, bId, b, ss, es) {
+		const key = `${aId}:${a.x},${a.y},${a.w},${a.h}|${bId}:${b.x},${b.y},${b.w},${b.h}|${ss}${es}`;
+		let c = this.cacheSides.get(key);
+		if (c) return c;
+		c = makeCurve(routeSides(a, b, ss, es));
+		if (this.cacheSides.size > GEO_CACHE) this.cacheSides.clear();
+		this.cacheSides.set(key, c);
+		return c;
 	}
 };
 /** Границы связи с запасом на любой из вариантов маршрута — для индексов тайлов и отсечения. */
@@ -34215,6 +34277,11 @@ var BoardScene = class BoardScene {
 	/** Обход карточек нитками (пересобирается при смене геометрии доски). */
 	router = new LinkRouter([]);
 	curveOf = (l, a, b) => {
+		if (l.fromSide || l.toSide) {
+			const ss = l.fromSide ?? OPPOSITE[l.toSide];
+			const es = l.toSide ?? OPPOSITE[l.fromSide];
+			return this.router.curveSides(l.fromId, a, l.toId, b, ss, es);
+		}
 		const obs = [];
 		for (const sl of [...(this.linksByBlock.get(l.fromId) ?? []), ...(this.linksByBlock.get(l.toId) ?? [])]) {
 			if (sl.id === l.id) continue;
@@ -35259,6 +35326,17 @@ var BoardScene = class BoardScene {
 		canvas.addEventListener("pointercancel", up);
 		canvas.addEventListener("wheel", wheel, { passive: false });
 		canvas.addEventListener("pointerleave", leave);
+		const ctxMenu = (e) => {
+			const p = toWorld(e);
+			const l = this.linkAt(p.wx, p.wy);
+			if (!l) return;
+			e.preventDefault();
+			this.ev.onLinkMenu(l, {
+				x: e.clientX,
+				y: e.clientY
+			});
+		};
+		canvas.addEventListener("contextmenu", ctxMenu);
 		this.cleanup.push(() => {
 			canvas.removeEventListener("pointerdown", down);
 			canvas.removeEventListener("pointermove", move);
@@ -35266,6 +35344,7 @@ var BoardScene = class BoardScene {
 			canvas.removeEventListener("pointercancel", up);
 			canvas.removeEventListener("wheel", wheel);
 			canvas.removeEventListener("pointerleave", leave);
+			canvas.removeEventListener("contextmenu", ctxMenu);
 			window.removeEventListener("keydown", key);
 		});
 	}
@@ -35286,6 +35365,7 @@ function BoardCanvas(props) {
 			onView: (v) => propsRef.current.onView(v),
 			onMove: (m) => propsRef.current.onMove(m),
 			onLinkRequest: (a, b, p) => propsRef.current.onLinkRequest(a, b, p),
+			onLinkMenu: (l, p) => propsRef.current.onLinkMenu(l, p),
 			onResize: (id, from, to) => propsRef.current.onResize(id, from, to)
 		}).then((s) => {
 			if (cancelled) return s.destroy();
@@ -38908,6 +38988,7 @@ function App() {
 	const [update, setUpdate] = (0, import_react.useState)(null);
 	const [shareAsk, setShareAsk] = (0, import_react.useState)(null);
 	const [gate, setGate] = (0, import_react.useState)(null);
+	const [linkMenu, setLinkMenu] = (0, import_react.useState)(null);
 	const [section, setSection] = (0, import_react.useState)(savedSection);
 	const sectionRef = (0, import_react.useRef)(section);
 	sectionRef.current = section;
@@ -38961,6 +39042,12 @@ function App() {
 	]);
 	(0, import_react.useEffect)(() => window.api.onUpdateAvailable((info) => setUpdate(info)), []);
 	(0, import_react.useEffect)(() => {
+		if (!linkMenu) return;
+		const close = () => setLinkMenu(null);
+		window.addEventListener("pointerdown", close);
+		return () => window.removeEventListener("pointerdown", close);
+	}, [linkMenu]);
+	(0, import_react.useEffect)(() => {
 		window.api.syncStatus().then((s) => {
 			if (!s.configured && !flags?.bench) setGate({ login: s.login ?? "mydi" });
 		}).catch(() => {});
@@ -38975,6 +39062,16 @@ function App() {
 			id,
 			name: b.name
 		});
+	};
+	const setLinkSide = async (end, value) => {
+		const id = linkMenu.id;
+		setLinkMenu(null);
+		try {
+			await window.api.updateLink(id, end === "from" ? { fromSide: value } : { toSide: value });
+			reloadGraph();
+		} catch (e) {
+			toast(String(e.message));
+		}
 	};
 	const shareNote = (name) => setShareAsk({
 		kind: "note",
@@ -39393,6 +39490,13 @@ function App() {
 								toId,
 								at
 							}),
+							onLinkMenu: (l, at) => setLinkMenu({
+								id: l.id,
+								fromSide: l.fromSide,
+								toSide: l.toSide,
+								x: at.x,
+								y: at.y
+							}),
 							onResize: (id, from, to) => actions.resizeBlock(id, from, to)
 						}),
 						active && graph?.blocks.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -39565,6 +39669,48 @@ function App() {
 				login: gate.login,
 				onDone: () => setGate(null),
 				onSkip: () => setGate(null)
+			}),
+			linkMenu && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "context-menu link-side-menu",
+				ref: (el) => clampMenuToViewport(el),
+				style: {
+					left: linkMenu.x,
+					top: linkMenu.y
+				},
+				onPointerDown: (e) => e.stopPropagation(),
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "menu-caption", children: t.linkMenu.source }),
+					...[
+						["auto", null, t.linkMenu.auto],
+						["t", "t", t.linkMenu.t],
+						["b", "b", t.linkMenu.b],
+						["l", "l", t.linkMenu.l],
+						["r", "r", t.linkMenu.r]
+					].map(([k, v, label]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						className: "type-menu-item" + (!linkMenu.fromSide && v === null ? " cursor" : linkMenu.fromSide === v ? " cursor" : ""),
+						onClick: () => setLinkSide("from", v),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "link-picker-label",
+							children: label
+						})
+					}, "f" + k)),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "menu-sep" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "menu-caption", children: t.linkMenu.target }),
+					...[
+						["auto", null, t.linkMenu.auto],
+						["t", "t", t.linkMenu.t],
+						["b", "b", t.linkMenu.b],
+						["l", "l", t.linkMenu.l],
+						["r", "r", t.linkMenu.r]
+					].map(([k, v, label]) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						className: "type-menu-item" + (!linkMenu.toSide && v === null ? " cursor" : linkMenu.toSide === v ? " cursor" : ""),
+						onClick: () => setLinkSide("to", v),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "link-picker-label",
+							children: label
+						})
+					}, "t" + k))
+				]
 			}),
 			shareAsk && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "modal-backdrop",

@@ -707,6 +707,8 @@ pre.diff { flex: 1; min-height: 0; overflow: auto; margin: 0; padding: 8px 0; fo
 .note-hit mark, .notes-list mark { background: rgba(217, 119, 87, 0.25); color: var(--text); border-radius: 2px; }
 .menu-sep { height: 1px; margin: 4px 2px; background: var(--border); }
 .menu-sub-host { position: relative; }
+.link-side-menu { min-width: 170px; }
+.menu-caption { padding: 6px 10px 3px; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: #6b6b6b; }
 .menu-sub-arrow { margin-left: auto; color: #6b6b6b; }
 .context-menu.submenu { position: absolute; left: calc(100% + 2px); top: -4px; min-width: 200px; }
 .context-menu.submenu .rename-input { height: 30px; padding: 0 8px; border-radius: 6px; }

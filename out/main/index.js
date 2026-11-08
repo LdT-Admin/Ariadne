@@ -133,6 +133,9 @@ var MIGRATIONS = [`
     at   INTEGER NOT NULL,
     PRIMARY KEY (kind, id)
   );
+  `, `
+  ALTER TABLE links ADD COLUMN from_side TEXT;
+  ALTER TABLE links ADD COLUMN to_side TEXT;
   `];
 //#endregion
 //#region src/shared/db/open.ts
@@ -553,7 +556,7 @@ function assertEnum(value, allowed, what) {
 }
 //#endregion
 //#region src/shared/db/links.ts
-var COLS$2 = `id, board_id AS boardId, from_id AS fromId, to_id AS toId, type, label`;
+var COLS$2 = `id, board_id AS boardId, from_id AS fromId, to_id AS toId, type, label, from_side AS fromSide, to_side AS toSide`;
 function listLinks(db, boardId) {
 	return db.prepare(`SELECT ${COLS$2} FROM links WHERE board_id = ? AND deleted_at IS NULL`).all(boardId);
 }
@@ -583,14 +586,21 @@ function createLink(db, fromId, toId, type, label = null) {
 		};
 	});
 }
+var SIDE_KEYS = [
+	"t",
+	"b",
+	"l",
+	"r"
+];
 function updateLink(db, id, patch) {
 	if (patch.type) assertLinkType(patch.type);
+	for (const k of ["fromSide", "toSide"]) if (patch[k] && !SIDE_KEYS.includes(patch[k])) throw new Error("Сторона: t, b, l или r");
 	return write(db, () => {
 		const next = {
 			...requireLink(db, id),
 			...patch
 		};
-		db.prepare(`UPDATE links SET type = ?, label = ? WHERE id = ?`).run(next.type, next.label, id);
+		db.prepare(`UPDATE links SET type = ?, label = ?, from_side = ?, to_side = ? WHERE id = ?`).run(next.type, next.label, next.fromSide ?? null, next.toSide ?? null, id);
 		return next;
 	});
 }
@@ -3190,8 +3200,12 @@ function linkRoute(a, b, variant = 0) {
 			ey,
 			nx: flip ? -dir : dir,
 			ny: 0,
+			sdx: flip ? -dir : dir,
+			sdy: 0,
 			adx: flip ? -dir : dir,
 			ady: 0,
+			edx: flip ? -dir : dir,
+			edy: 0,
 			mid: (sx + ex) / 2,
 			lo: 0,
 			hi: 0
@@ -3211,13 +3225,61 @@ function linkRoute(a, b, variant = 0) {
 		ey,
 		nx: 0,
 		ny: flip ? -dir : dir,
+		sdx: 0,
+		sdy: flip ? -dir : dir,
 		adx: 0,
 		ady: flip ? -dir : dir,
+		edx: 0,
+		edy: flip ? -dir : dir,
 		mid: (sy + ey) / 2,
 		lo: 0,
 		hi: 0
 	};
 }
+var OPPOSITE = {
+	t: "b",
+	b: "t",
+	l: "r",
+	r: "l"
+};
+var SIDE_N = {
+	t: [0, -1],
+	b: [0, 1],
+	l: [-1, 0],
+	r: [1, 0]
+};
+/** Нитка с заданными сторонами (t/b/l/r): точки — проекция центра соседа, зажатая отступом 12. */
+function routeSides(a, b, ss, es) {
+	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
+	const acx = a.x + aw / 2, acy = a.y + ah / 2;
+	const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
+	const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+	const pt = (side, x, y, w, h, ox, oy) => side === "l" ? [x, clamp(oy, y + 12, y + h - 12)] : side === "r" ? [x + w, clamp(oy, y + 12, y + h - 12)] : side === "t" ? [clamp(ox, x + 12, x + w - 12), y] : [clamp(ox, x + 12, x + w - 12), y + h];
+	const [sx, sy] = pt(ss, a.x, a.y, aw, ah, bcx, bcy);
+	const [ex, ey] = pt(es, b.x, b.y, bw, bh, acx, acy);
+	const sn = SIDE_N[ss], en = SIDE_N[es];
+	return {
+		horizontal: ss === "l" || ss === "r",
+		flip: false,
+		dir: 1,
+		sx,
+		sy,
+		ex,
+		ey,
+		nx: sn[0],
+		ny: sn[1],
+		sdx: sn[0],
+		sdy: sn[1],
+		adx: -en[0],
+		ady: -en[1],
+		edx: -en[0],
+		edy: -en[1],
+		mid: (sx + ex) / 2,
+		lo: 0,
+		hi: 0
+	};
+}
+
 
 /** Скругление углов ломаной (плоский массив x,y): каждое колено — короткая квадратичная дуга. */
 function roundCorners(c) {
@@ -3249,9 +3311,8 @@ function roundCorners(c) {
 */
 function makeCurve(r) {
 	const { sx, sy, ex, ey } = r;
-	const arm = r.flip ? -r.dir : r.dir;
-	const sdx = r.horizontal ? arm : 0, sdy = r.horizontal ? 0 : arm;
-	const edx = r.horizontal ? arm : 0, edy = r.horizontal ? 0 : arm;
+	const sdx = r.sdx ?? 0, sdy = r.sdy ?? 0;
+	const edx = r.edx ?? r.adx ?? 0, edy = r.edy ?? r.ady ?? 0;
 	const dist = Math.hypot(ex - sx, ey - sy);
 	const k = Math.min(170, Math.max(40, dist * .45));
 	const c1x = sx + sdx * k, c1y = sy + sdy * k;
@@ -3273,7 +3334,12 @@ function makeCurve(r) {
 		pts
 	};
 }
-function linkCurve(a, b) {
+function linkCurve(a, b, fromSide, toSide) {
+	if (fromSide || toSide) {
+		const ss = fromSide ?? OPPOSITE[toSide];
+		const es = toSide ?? OPPOSITE[fromSide];
+		return makeCurve(routeSides(a, b, ss, es));
+	}
 	return makeCurve(linkRoute(a, b));
 }
 /** Треугольник стрелки на конце нитки (вдоль последнего отрезка), size — длина в мировых единицах. */
@@ -3343,6 +3409,7 @@ function segHitsBox(x0, y0, x1, y1, r) {
 var LinkRouter = class {
 	grid = /* @__PURE__ */ new Map();
 	cache = /* @__PURE__ */ new Map();
+	cacheSides = /* @__PURE__ */ new Map();
 	constructor(blocks) {
 		for (const b of blocks) {
 			const box = {
@@ -3360,12 +3427,12 @@ var LinkRouter = class {
 			}
 		}
 	}
-	/** Сколько чужих карточек задевает ломаная (свои карточки на концах не считаются). */
+	/** Сколько чужих карточек задевает кривая (свои карточки на концах не считаются). */
 	hits(c, aId, bId) {
 		const seen = /* @__PURE__ */ new Set();
-		const p = c.corners;
-		for (let i = 2; i < p.length; i += 2) {
-			const x0 = p[i - 2], y0 = p[i - 1], x1 = p[i], y1 = p[i + 1];
+		const p = c.pts;
+		for (let i = 6; i < p.length; i += 6) {
+			const x0 = p[i - 6], y0 = p[i - 5], x1 = p[i], y1 = p[i + 1];
 			for (let cx = Math.floor(Math.min(x0, x1) / GEO_CELL); cx <= Math.floor(Math.max(x0, x1) / GEO_CELL); cx++) for (let cy = Math.floor(Math.min(y0, y1) / GEO_CELL); cy <= Math.floor(Math.max(y0, y1) / GEO_CELL); cy++) for (const box of this.grid.get(`${cx},${cy}`) ?? []) {
 				if (box.id === aId || box.id === bId || seen.has(box.id)) continue;
 				if (segHitsBox(x0, y0, x1, y1, box)) seen.add(box.id);
@@ -3373,33 +3440,38 @@ var LinkRouter = class {
 		}
 		return seen.size;
 	}
-	/** Нитка связи: колено посередине, а если там чужая карточка — ближайшее свободное место в промежутке (кэш по положению концов). */
+	/** Нитка связи: 4 варианта, побеждает минимальный счёт (направление, карточки, длина). */
 	curve(aId, a, bId, b) {
 		const key = `${aId}:${a.x},${a.y},${a.w},${a.h}|${bId}:${b.x},${b.y},${b.w},${b.h}`;
 		const hit = this.cache.get(key);
 		if (hit) return hit;
-		const r = linkRoute(a, b);
-		let best = makeCurve(r);
-		let bestHits = this.hits(best, aId, bId);
-		if (bestHits > 0 && r.lo !== r.hi) for (const f of [
-			.35,
-			.65,
-			.2,
-			.8,
-			0,
-			1
-		]) {
-			const c = makeCurve(r, r.lo + (r.hi - r.lo) * f);
-			const h = this.hits(c, aId, bId);
-			if (h < bestHits) {
+		const acx = a.x + (a.w ?? 240) / 2, acy = a.y + (a.h ?? 100) / 2;
+		const bcx = b.x + (b.w ?? 240) / 2, bcy = b.y + (b.h ?? 100) / 2;
+		const vx = bcx - acx, vy = bcy - acy;
+		const vl = Math.hypot(vx, vy) || 1;
+		let best = null, bestScore = Infinity;
+		for (let v = 0; v < 4; v++) {
+			const r = linkRoute(a, b, v);
+			const c = makeCurve(r);
+			const dot = r.nx * vx / vl + r.ny * vy / vl;
+			const score = (1 - dot) * 90 + this.hits(c, aId, bId) * 30 + (v === 1 ? 6 : 0);
+			if (score < bestScore) {
+				bestScore = score;
 				best = c;
-				bestHits = h;
 			}
-			if (bestHits === 0) break;
 		}
 		if (this.cache.size > GEO_CACHE) this.cache.clear();
 		this.cache.set(key, best);
 		return best;
+	}
+	curveSides(aId, a, bId, b, ss, es) {
+		const key = `${aId}:${a.x},${a.y},${a.w},${a.h}|${bId}:${b.x},${b.y},${b.w},${b.h}|${ss}${es}`;
+		let c = this.cacheSides.get(key);
+		if (c) return c;
+		c = makeCurve(routeSides(a, b, ss, es));
+		if (this.cacheSides.size > GEO_CACHE) this.cacheSides.clear();
+		this.cacheSides.set(key, c);
+		return c;
 	}
 };
 /** Границы связи (колено всегда между концами) с запасом — для индексов тайлов и отсечения. */
@@ -3481,7 +3553,7 @@ function boardSnapshot(db, boardId, opts = {}) {
 		for (const l of listLinks(db, boardId)) {
 			const a = byId.get(l.fromId), b = byId.get(l.toId);
 			if (!a || !b || !inRegion(routedBounds(a, b))) continue;
-			const c = router.curve(a.id, a, b.id, b);
+			const c = l.fromSide || l.toSide ? router.curveSides(a.id, a, b.id, b, l.fromSide ?? OPPOSITE[l.toSide], l.toSide ?? OPPOSITE[l.fromSide]) : router.curve(a.id, a, b.id, b);
 			const st = LINK_STYLE[l.type];
 			const dash = st.dash.length ? ` stroke-dasharray="${st.dash.map(px).join(" ")}"` : "";
 			parts.push(`<path d="M${c.pts.slice(0, 2).join(" ")} L${c.pts.slice(2).join(" ")}" fill="none" stroke="${st.color}" stroke-opacity="0.8" stroke-width="${px(st.width * 1.2)}"${dash}/>`, `<polygon points="${arrowHead(c, px(9)).join(" ")}" fill="${st.color}" fill-opacity="0.8"/>`);
