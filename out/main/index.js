@@ -3784,7 +3784,13 @@ function exportBoard(d, boardId) {
 /** Вставка/обновление строки от сервера. Для blocks/links живые строки переиндексируются. */
 function upsertRow(d, kind, row) {
 	if (!row || !row.json) return;
-	const cols = Object.keys(row.json);
+	const json = row.json;
+	if (kind === "boards") {
+		json.created_at ??= json.updated_at ?? Date.now();
+		json.updated_at ??= json.created_at;
+		json.sort_order ??= 0;
+	}
+	const cols = Object.keys(json);
 	if (!cols.length) return;
 	const table = kind === "block_tags" ? "block_tags" : kind;
 	const names = cols.map((c) => `"${c}"`).join(", ");
@@ -3820,6 +3826,7 @@ function mergeBoard(d, remote, localExists) {
 			const tomb = d.prepare(`SELECT at FROM sync_tombstones WHERE kind = ? AND id = ?`).get(kind, rowId)?.at ?? 0;
 			const localRow = spec && localExists ? (d.prepare(specByRow(kind, rowId)).get(rowId) ?? null) : null;
 			const localVer = localRow ? spec.ver(localRow) : -1;
+			const localDel = localRow ? spec.del(localRow) : false;
 			if (row.deleted) {
 				if (localRow && !localDel && row.version > localVer && tomb < row.version) {
 					if (kind === "blocks" || kind === "links") {
@@ -3867,7 +3874,6 @@ function walkFiles(dir, base = dir, out = []) {
 async function syncFiles(state, headers, cfg, ctx) {
 	const notesDir = ctx.notes.store.dir;
 	const shared = readSharedNotes(notesDir);
-	console.error(`[sync] files: dir=${notesDir} shared=${JSON.stringify(shared)}`);
 	const local = new Map();
 	for (const name of shared) {
 		const noteFile = join(notesDir, `${name}.md`);
@@ -3950,6 +3956,7 @@ function localPathFor(path, notesDir, ctx) {
 async function runSync(reason) {
 	if (!syncCtx || syncBusy) return { busy: true };
 	const cfg = readSyncCfg(syncCtx.db);
+	console.error(`[sync] cfg: server=${cfg.server} token=${(cfg.token ?? "").slice(0, 6)}`);
 	if (!cfg.server || !cfg.token) return { skipped: true };
 	syncBusy = true;
 	try {
@@ -3981,13 +3988,23 @@ async function runSync(reason) {
 			appliedBoards += n;
 		}
 		const pushBoards = localShared.filter((id) => !state.boards?.[id]?.board?.deleted).map((id) => exportBoard(d, id)).filter(Boolean);
-		if (pushBoards.length) await net.fetch(`${cfg.server}/sync/boards`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ boards: pushBoards }), signal: AbortSignal.timeout(30000) });
+		if (pushBoards.length) {
+			const body = JSON.stringify({ boards: pushBoards });
+			console.error(`[sync] boards: ${pushBoards.length} шт, ${(body.length / 1048576).toFixed(1)} МБ`);
+			const r = await net.fetch(`${cfg.server}/sync/boards`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body, signal: AbortSignal.timeout(30000) });
+			console.error(`[sync] boards ответ: ${r.status} ${(await r.text()).slice(0, 120)}`);
+		}
 		const files = await syncFiles(state, headers, cfg, syncCtx);
+		if (appliedBoards || files.applied) {
+			for (const w of BrowserWindow.getAllWindows()) w.webContents.send?.("db:changed");
+			if (files.applied) syncCtx.notes.afterOwnChange([]);
+		}
 		setSyncMeta(d, { sync_last_run: Date.now() });
 		const summary = { reason, boards: appliedBoards, notes: files.applied, filesPushed: files.pushed, at: Date.now() };
 		for (const w of BrowserWindow.getAllWindows()) w.webContents.send?.("sync:done", summary);
 		return summary;
 	} catch (e) {
+		console.error(`[sync] ERR: ${e?.message ?? e}`);
 		const err = { reason, error: String(e?.message ?? e), at: Date.now() };
 		for (const w of BrowserWindow.getAllWindows()) w.webContents.send?.("sync:error", err);
 		return err;
@@ -5121,9 +5138,9 @@ function openMain(note) {
 			});
 		}).catch(() => {});
 	}, 2500);
-	/** Синхронизация общих досок/заметок: на старте и каждую минуту. */
+	/** Синхронизация общих досок/заметок: на старте и каждые 15 секунд. */
 	setTimeout(() => runSync("start").catch(() => {}), 6000);
-	setInterval(() => runSync("timer").catch(() => {}), 60 * 1000).unref?.();
+	setInterval(() => runSync("timer").catch(() => {}), 15 * 1000).unref?.();
 }
 /**
 * Компактное окно одной заметки (ТЗ заметок §6): без досок и холста — отдельная лёгкая страница.
