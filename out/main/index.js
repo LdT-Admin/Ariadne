@@ -3162,53 +3162,57 @@ async function svgToPng(svg, wasmPath) {
 var CORNER_R = 16;
 var LINK_STUB = 24;
 /**
-* Ортогональная нитка между карточками. Правило одно для всех связей:
-* блоки разнесены по горизонтали (и не сильно по вертикали) — выход из боковой стороны,
-* иначе — из верхней/нижней. Колено — посередине промежутка, поэтому у связей одного блока
-* с карточками одной колонки/ряда общий «ствол», и линии не расходятся веером.
-* Почти соосные карточки соединяются прямой без ступеньки.
+* Нитка между карточками. Стороны выхода/входа — ближайшие: из всех пар сторон
+* (лево/право/верх/низ × лево/право/верх/низ) побеждает минимальная дистанция между их серединами.
+* Почти соосные карточки соединяются прямой без излома.
 */
 function linkRoute(a, b) {
 	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
 	const acx = a.x + aw / 2, acy = a.y + ah / 2;
 	const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
-	const dx = bcx - acx, dy = bcy - acy;
-	const gapX = Math.abs(dx) - (aw + bw) / 2, gapY = Math.abs(dy) - (ah + bh) / 2;
-	if (gapX > 0 && (gapY <= 0 || gapX * 3 >= gapY)) {
-		const dir = Math.sign(dx) || 1;
-		const sx = acx + dir * aw / 2, ex = bcx - dir * bw / 2;
-		let sy = acy, ey = bcy;
+	const anchor = (side, x, y, w, h) => side === "l" ? [x, y + h / 2] : side === "r" ? [x + w, y + h / 2] : side === "t" ? [x + w / 2, y] : [x + w / 2, y + h];
+	let best = null;
+	for (const ss of [
+		"r",
+		"l",
+		"b",
+		"t"
+	]) for (const es of [
+		"l",
+		"r",
+		"t",
+		"b"
+	]) {
+		const [ax, ay] = anchor(ss, a.x, a.y, aw, ah);
+		const [bx, by] = anchor(es, b.x, b.y, bw, bh);
+		const d = Math.hypot(bx - ax, by - ay);
+		if (!best || d < best.d) best = {
+			ss,
+			ax,
+			ay,
+			bx,
+			by,
+			d
+		};
+	}
+	const horizontal = best.ss === "r" || best.ss === "l";
+	const dir = horizontal ? best.ss === "r" ? 1 : -1 : best.ss === "b" ? 1 : -1;
+	let sx = best.ax, sy = best.ay, ex = best.bx, ey = best.by;
+	if (horizontal) {
 		if (Math.abs(sy - ey) < 2 * CORNER_R) {
 			if (acy >= b.y && acy <= b.y + bh) ey = acy;
 			else if (bcy >= a.y && bcy <= a.y + ah) sy = bcy;
 		}
-		const mid = (sx + ex) / 2;
-		const lo = sx + dir * LINK_STUB, hi = ex - dir * LINK_STUB;
-		const roomy = (hi - lo) * dir > 0;
-		return {
-			horizontal: true,
-			dir,
-			sx,
-			sy,
-			ex,
-			ey,
-			mid,
-			lo: roomy ? lo : mid,
-			hi: roomy ? hi : mid
-		};
-	}
-	const dir = Math.sign(dy) || 1;
-	const sy = acy + dir * ah / 2, ey = bcy - dir * bh / 2;
-	let sx = acx, ex = bcx;
-	if (Math.abs(sx - ex) < 2 * CORNER_R) {
+	} else if (Math.abs(sx - ex) < 2 * CORNER_R) {
 		if (acx >= b.x && acx <= b.x + bw) ex = acx;
 		else if (bcx >= a.x && bcx <= a.x + aw) sx = bcx;
 	}
-	const mid = (sy + ey) / 2;
-	const lo = sy + dir * LINK_STUB, hi = ey - dir * LINK_STUB;
+	const mid = horizontal ? (sx + ex) / 2 : (sy + ey) / 2;
+	const lo = (horizontal ? sx : sy) + dir * LINK_STUB;
+	const hi = (horizontal ? ex : ey) - dir * LINK_STUB;
 	const roomy = (hi - lo) * dir > 0;
 	return {
-		horizontal: false,
+		horizontal,
 		dir,
 		sx,
 		sy,
