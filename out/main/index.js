@@ -3764,6 +3764,16 @@ function readSharedNotes(dir) {
 function writeSharedNotes(dir, notes) {
 	atomicWrite(join(dir, META_DIR, "shared.json"), JSON.stringify({ notes }, null, 2) + "\n");
 }
+/** Файлы, полученные с сервера: только их удаляет pull-удаление (оригиналы владельца не трогаем). */
+function readSyncedFiles(dir) {
+	try {
+		const j = JSON.parse(readFileSync(join(dir, META_DIR, "synced.json"), "utf8"));
+		return new Set(Array.isArray(j.paths) ? j.paths.filter((x) => typeof x === "string") : []);
+	} catch { return /* @__PURE__ */ new Set(); }
+}
+function writeSyncedFiles(dir, set) {
+	atomicWrite(join(dir, META_DIR, "synced.json"), JSON.stringify({ paths: [...set] }, null, 2) + "\n");
+}
 /** Экспорт общего состояния доски для сервера. */
 function exportBoard(d, boardId) {
 	const board = d.prepare(`SELECT * FROM boards WHERE id = ?`).get(boardId);
@@ -3903,8 +3913,20 @@ async function syncFiles(state, headers, cfg, ctx) {
 		}
 	}
 	// серверные: скачать чужие новые, удалить исчезнувшие
+	const syncedSet = readSyncedFiles(notesDir);
+	let syncedChanged = false;
 	for (const [path, r] of Object.entries(remote)) {
-		if (r.deleted) continue;
+		if (r.deleted) {
+			// канал удалён: убираем файл, только если он был получен с сервера
+			const info = local.get(path);
+			if (info && syncedSet.has(path)) {
+				rmSync(info.abs, { force: true });
+				syncedSet.delete(path);
+				syncedChanged = true;
+				applied++;
+			}
+			continue;
+		}
 		const info = local.get(path);
 		if (!info) {
 			if (!isOurPath(path, shared, ctx)) continue;
@@ -3914,6 +3936,8 @@ async function syncFiles(state, headers, cfg, ctx) {
 			if (!abs) continue;
 			mkdirSync(dirname(abs), { recursive: true });
 			writeFileSync(abs, Buffer.from(await res.arrayBuffer()));
+			syncedSet.add(path);
+			syncedChanged = true;
 			applied++;
 		} else if (r.sha256 !== sha256File(info.abs)) {
 			if ((r.mtime ?? 0) > Math.round(info.mtime)) {
@@ -3931,6 +3955,7 @@ async function syncFiles(state, headers, cfg, ctx) {
 		if (!existsSync(join(notesDir, `${name}.md`)) && remote[path] && !remote[path].deleted) pushFiles.push({ path, sha256: remote[path].sha256, mtime: Date.now(), deleted: true });
 	}
 	if (pushFiles.length) await net.fetch(`${cfg.server}/sync/files`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ files: pushFiles }), signal: AbortSignal.timeout(30000) });
+	if (syncedChanged) writeSyncedFiles(notesDir, syncedSet);
 	console.error(`[sync] files: local=${local.size} remote=${Object.keys(remote).length} push=${pushFiles.length}`);
 	return { pushed: pushFiles.length, applied };
 }

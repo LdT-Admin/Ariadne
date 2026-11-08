@@ -3,7 +3,7 @@
 ; Сборка: ISCC.exe ariadne.iss
 
 #define MyAppName "Ariadne"
-#define MyAppVersion "0.3.0"
+#define MyAppVersion "0.3.1"
 #define MyAppExeName "Ariadne.exe"
 
 [Setup]
