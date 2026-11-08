@@ -1775,6 +1775,7 @@ function atomicWrite(file, content) {
 		writeSync(fd, typeof content === "string" ? Buffer.from(content, "utf8") : content);
 		fsyncSync(fd);
 	} finally {
+		fsyncSync(fd);
 		closeSync(fd);
 	}
 	try {
@@ -4081,7 +4082,8 @@ async function applyUpdate(progressTo) {
 	if (!info.available || !info.latest) throw new Error("Нет доступного обновления");
 	const { asar, sha256, version } = info.latest;
 	const target = join(dirname(process.execPath), "resources", "app.asar");
-	const tmp = join(runtimeDir, `update-${version}.asar`);
+	// ВАЖНО: не .asar — Electron перехватывает такие пути и ломает запись («Invalid package»)
+	const tmp = join(runtimeDir, `update-${version}.packed`);
 	const res = await net.fetch(`${UPDATE_URL}/asar/${encodeURIComponent(asar)}`);
 	if (!res.ok) throw new Error(`Скачивание: HTTP ${res.status}`);
 	const total = Number(res.headers.get("content-length")) || 0;
@@ -4094,6 +4096,7 @@ async function applyUpdate(progressTo) {
 			progressTo?.({ got, total });
 		}
 	} finally {
+		fsyncSync(fd);
 		closeSync(fd);
 	}
 	const hash = createHash("sha256").update(readFileSync(tmp)).digest("hex");
@@ -4101,16 +4104,21 @@ async function applyUpdate(progressTo) {
 		rmSync(tmp, { force: true });
 		throw new Error("Контрольная сумма не совпала — файл повреждён");
 	}
-	const bak = `${target}.${Date.now()}.bak`;
-	renameSync(target, bak);
-	try {
-		renameSync(tmp, target);
-	} catch (e) {
-		renameSync(bak, target);
-		throw e;
-	}
+	/** Пока приложение живо, app.asar заблокирован: подмену делает cmd-помощник после нашего выхода. */
+	const helper = join(runtimeDir, "apply-update.cmd");
+	writeFileSync(helper, [
+		"@echo off",
+		":wait",
+		`tasklist /FI "PID eq ${process.pid}" 2>NUL | find "${process.pid}" >NUL`,
+		"if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait)",
+		`if exist "${target}" move /Y "${target}" "${target}.bak" >NUL`,
+		`move /Y "${tmp}" "${target}" >NUL`,
+		`start "" "${process.execPath}"`,
+		`del "%~f0"`
+	].join("\r\n"), "utf8");
+	const helperProc = spawn("cmd.exe", ["/c", helper], { detached: true, stdio: "ignore", windowsHide: true });
+	helperProc.unref?.();
 	progressTo?.({ done: true });
-	app.relaunch();
 	app.exit(0);
 }
 //#endregion
