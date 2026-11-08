@@ -33490,57 +33490,61 @@ async function loadIconTextures() {
 var CORNER_R = 16;
 var LINK_STUB = 24;
 /**
-* Нитка между карточками. Сторона — по смещению центров: |dx| >= |dy| — выход вбок,
-* иначе — сверху/снизу. Так связаны между собой колонки и ряды, как это видит человек.
+* Нитка между карточками. Вариант 0/1 — по смещению центров (|dx|>=|dy| — вбок, иначе сверху/снизу),
+* варианты 2/3 — то же с выходом/входом с дальней стороны (обход). Сторона по умолчанию — как видит человек,
+* выбор между вариантами — по пересечениям (в LinkRouter.curve).
 */
-function linkRoute(a, b) {
+function linkRoute(a, b, variant = 0) {
 	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
 	const acx = a.x + aw / 2, acy = a.y + ah / 2;
 	const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
 	const dx = bcx - acx, dy = bcy - acy;
-	const horizontal = Math.abs(dx) >= Math.abs(dy);
-	const dir = horizontal ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
-	if (horizontal) {
-		const sx = acx + dir * aw / 2, ex = bcx - dir * bw / 2;
+	const axisH = variant < 2 ? Math.abs(dx) >= Math.abs(dy) : Math.abs(dx) < Math.abs(dy);
+	const flip = variant >= 2;
+	const dir = axisH ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
+	if (axisH) {
+		const sx = acx + (flip ? -dir : dir) * aw / 2;
+		const ex = bcx + (flip ? dir : -dir) * bw / 2;
 		let sy = acy, ey = bcy;
 		if (Math.abs(sy - ey) < 2 * CORNER_R) {
 			if (acy >= b.y && acy <= b.y + bh) ey = acy;
 			else if (bcy >= a.y && bcy <= a.y + ah) sy = bcy;
 		}
 		const mid = (sx + ex) / 2;
-		const lo = sx + dir * LINK_STUB, hi = ex - dir * LINK_STUB;
-		const roomy = (hi - lo) * dir > 0;
+		const lo = Math.min(sx, ex) + Math.abs(ex - sx) / 2, hi = lo;
 		return {
 			horizontal: true,
+			flip,
 			dir,
 			sx,
 			sy,
 			ex,
 			ey,
 			mid,
-			lo: roomy ? lo : mid,
-			hi: roomy ? hi : mid
+			lo,
+			hi
 		};
 	}
-	const sy = acy + dir * ah / 2, ey = bcy - dir * bh / 2;
+	const sy = acy + (flip ? -dir : dir) * ah / 2;
+	const ey = bcy + (flip ? dir : -dir) * bh / 2;
 	let sx = acx, ex = bcx;
 	if (Math.abs(sx - ex) < 2 * CORNER_R) {
 		if (acx >= b.x && acx <= b.x + bw) ex = acx;
 		else if (bcx >= a.x && bcx <= a.x + aw) sx = bcx;
 	}
 	const mid = (sy + ey) / 2;
-	const lo = sy + dir * LINK_STUB, hi = ey - dir * LINK_STUB;
-	const roomy = (hi - lo) * dir > 0;
+	const lo = Math.min(sy, ey) + Math.abs(ey - sy) / 2, hi = lo;
 	return {
 		horizontal: false,
+		flip,
 		dir,
 		sx,
 		sy,
 		ex,
 		ey,
 		mid,
-		lo: roomy ? lo : mid,
-		hi: roomy ? hi : mid
+		lo,
+		hi
 	};
 }
 /** Скругление углов ломаной (плоский массив x,y): каждое колено — короткая квадратичная дуга. */
@@ -33568,19 +33572,20 @@ function roundCorners(c) {
 	return out;
 }
 /**
-* Нитка — кубическая кривая Безье (Miro/FigJam): «рукава» контрольных точек вдоль стороны выхода.
-* pts — та же кривая, разбитая на ломаную (для пунктира, хит-теста и подписей).
+* Нитка — кубическая кривая Безье: «рукава» контрольных точек наружу из стороны выхода
+* и навстречу точке входа. pts — та же кривая ломаной (пунктир, хит-тест, подписи).
 */
-function makeCurve(r, trunk = r.mid) {
+function makeCurve(r) {
 	const { sx, sy, ex, ey } = r;
-	const adx = r.horizontal ? r.dir : 0;
-	const ady = r.horizontal ? 0 : r.dir;
+	const arm = r.flip ? -r.dir : r.dir;
+	const sdx = r.horizontal ? arm : 0, sdy = r.horizontal ? 0 : arm;
+	const edx = r.horizontal ? arm : 0, edy = r.horizontal ? 0 : arm;
 	const dist = Math.hypot(ex - sx, ey - sy);
 	const k = Math.min(170, Math.max(40, dist * .45));
-	const c1x = sx + adx * k, c1y = sy + ady * k;
-	const c2x = ex - adx * k, c2y = ey - ady * k;
+	const c1x = sx + sdx * k, c1y = sy + sdy * k;
+	const c2x = ex - edx * k, c2y = ey - edy * k;
 	const pts = [];
-	if (Math.abs(r.horizontal ? sy - ey : sx - ex) < .5) pts.push(sx, sy, ex, ey);
+	if (!r.flip && Math.abs(r.horizontal ? sy - ey : sx - ex) < .5) pts.push(sx, sy, ex, ey);
 	else for (let i = 0; i <= 22; i++) {
 		const t = i / 22, u = 1 - t;
 		pts.push(u * u * u * sx + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * ex, u * u * u * sy + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * ey);
@@ -33590,15 +33595,31 @@ function makeCurve(r, trunk = r.mid) {
 		sy,
 		ex,
 		ey,
-		adx,
-		ady,
-		c1x,
-		c1y,
-		c2x,
-		c2y,
+		adx: edx,
+		ady: edy,
 		corners: [sx, sy, ex, ey],
 		pts
 	};
+}
+function curveLength(c) {
+	let total = 0;
+	const p = c.pts;
+	for (let i = 2; i < p.length; i += 2) total += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+	return total;
+}
+/** Сколько раз ломаная a пересекает ломаную b (грубо, по каждой третьей точке — достаточно для оценки). */
+function crossings(a, b) {
+	let n = 0;
+	for (let i = 2; i < a.length; i += 6) for (let j = 2; j < b.length; j += 6) {
+		const d1x = a[i] - a[i - 2], d1y = a[i + 1] - a[i - 1];
+		const d2x = b[j] - b[j - 2], d2y = b[j + 1] - b[j - 1];
+		const den = d1x * d2y - d1y * d2x;
+		if (!den) continue;
+		const t = ((a[i - 2] - b[j - 2]) * d2y - (a[i - 1] - b[j - 1]) * d2x) / den;
+		const u = ((a[i - 2] - b[j - 2]) * d1y - (a[i - 1] - b[j - 1]) * d1x) / den;
+		if (t > 0 && t < 1 && u > 0 && u < 1) n++;
+	}
+	return n;
 }
 function linkCurve(a, b) {
 	return makeCurve(linkRoute(a, b));
@@ -33682,6 +33703,7 @@ function segHitsBox(x0, y0, x1, y1, r) {
 var LinkRouter = class {
 	grid = /* @__PURE__ */ new Map();
 	cache = /* @__PURE__ */ new Map();
+	cacheShallow = /* @__PURE__ */ new Map();
 	constructor(blocks) {
 		for (const b of blocks) {
 			const box = {
@@ -33699,12 +33721,12 @@ var LinkRouter = class {
 			}
 		}
 	}
-	/** Сколько чужих карточек задевает ломаная (свои карточки на концах не считаются). */
+	/** Сколько чужих карточек задевает кривая (свои карточки на концах не считаются). */
 	hits(c, aId, bId) {
 		const seen = /* @__PURE__ */ new Set();
-		const p = c.corners;
-		for (let i = 2; i < p.length; i += 2) {
-			const x0 = p[i - 2], y0 = p[i - 1], x1 = p[i], y1 = p[i + 1];
+		const p = c.pts;
+		for (let i = 6; i < p.length; i += 6) {
+			const x0 = p[i - 6], y0 = p[i - 5], x1 = p[i], y1 = p[i + 1];
 			for (let cx = Math.floor(Math.min(x0, x1) / GEO_CELL); cx <= Math.floor(Math.max(x0, x1) / GEO_CELL); cx++) for (let cy = Math.floor(Math.min(y0, y1) / GEO_CELL); cy <= Math.floor(Math.max(y0, y1) / GEO_CELL); cy++) for (const box of this.grid.get(`${cx},${cy}`) ?? []) {
 				if (box.id === aId || box.id === bId || seen.has(box.id)) continue;
 				if (segHitsBox(x0, y0, x1, y1, box)) seen.add(box.id);
@@ -33712,46 +33734,38 @@ var LinkRouter = class {
 		}
 		return seen.size;
 	}
-	/** Нитка связи: колено посередине, а если там чужая карточка — ближайшее свободное место в промежутке (кэш по положению концов). */
-	curve(aId, a, bId, b) {
+	/**
+	* Нитка связи: 4 варианта маршрута; побеждает вариант с наименьшим счётом —
+	* пересечения с чужими связями (obstacles) ×12, сквозь карточки ×40, длина, штраф за обход.
+	*/
+	curve(aId, a, bId, b, obstacles, shallow = false) {
 		const key = `${aId}:${a.x},${a.y},${a.w},${a.h}|${bId}:${b.x},${b.y},${b.w},${b.h}`;
-		const hit = this.cache.get(key);
+		const bucket = shallow ? this.cacheShallow : this.cache;
+		const hit = bucket.get(key);
 		if (hit) return hit;
-		const r = linkRoute(a, b);
-		let best = makeCurve(r);
-		let bestHits = this.hits(best, aId, bId);
-		if (bestHits > 0 && r.lo !== r.hi) for (const f of [
-			.35,
-			.65,
-			.2,
-			.8,
-			0,
-			1
-		]) {
-			const c = makeCurve(r, r.lo + (r.hi - r.lo) * f);
-			const h = this.hits(c, aId, bId);
-			if (h < bestHits) {
+		let best = null, bestScore = Infinity;
+		for (let v = 0; v < 4; v++) {
+			const c = makeCurve(linkRoute(a, b, v));
+			let score = this.hits(c, aId, bId) * 40 + curveLength(c) * .03 + (v < 2 ? 0 : 10);
+			if (obstacles?.length) for (const o of obstacles) score += crossings(c.pts, o) * 12;
+			if (score < bestScore) {
+				bestScore = score;
 				best = c;
-				bestHits = h;
 			}
-			if (bestHits === 0) break;
 		}
-		if (this.cache.size > GEO_CACHE) this.cache.clear();
-		this.cache.set(key, best);
+		if (bucket.size > GEO_CACHE) bucket.clear();
+		bucket.set(key, best);
 		return best;
 	}
 };
-/** Границы связи с запасом на «рукава» Безье — для индексов тайлов и отсечения. */
+/** Границы связи с запасом на любой из вариантов маршрута — для индексов тайлов и отсечения. */
 function routedBounds(a, b) {
-	const r = linkRoute(a, b);
-	const k = Math.min(170, Math.max(40, Math.hypot(r.ex - r.sx, r.ey - r.sy) * .45)) + 40;
-	const adx = r.horizontal ? r.dir : 0;
-	const ady = r.horizontal ? 0 : r.dir;
+	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
 	return {
-		x0: Math.min(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
-		y0: Math.min(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k),
-		x1: Math.max(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
-		y1: Math.max(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k)
+		x0: Math.min(a.x, b.x) - 220,
+		y0: Math.min(a.y, b.y) - 220,
+		x1: Math.max(a.x + aw, b.x + bw) + 220,
+		y1: Math.max(a.y + ah, b.y + bh) + 220
 	};
 }
 //#endregion
@@ -33857,11 +33871,16 @@ function drawLinks(g, links, pos, o) {
 	const { clip } = o;
 	let drawn = 0;
 	const arrow = 9 / o.zoom;
-	if (o.glow) for (const l of links) {
+	const curated = /* @__PURE__ */ new Map();
+	for (const l of links) {
 		const a = pos(l.fromId), b = pos(l.toId);
 		if (!a || !b) continue;
+		curated.set(l.id, o.curveOf ? o.curveOf(l, a, b) : linkCurve(a, b));
+	}
+	if (o.glow) for (const l of links) {
 		const st = LINK_STYLE[l.type];
-		const c = o.curveOf ? o.curveOf(l, a, b) : linkCurve(a, b);
+		const c = curated.get(l.id);
+		if (!c) continue;
 		strokeCurve(g, c, SOLID, clip);
 		g.stroke({
 			width: st.width * (o.widthScale ?? 1) * 4 / o.zoom,
@@ -33878,9 +33897,8 @@ function drawLinks(g, links, pos, o) {
 		const heads = [];
 		let segments = 0;
 		for (const l of list) {
-			const a = pos(l.fromId), b = pos(l.toId);
-			if (!a || !b) continue;
-			const c = o.curveOf ? o.curveOf(l, a, b) : linkCurve(a, b);
+			const c = curated.get(l.id);
+			if (!c) continue;
 			segments += strokeCurve(g, c, dash, clip);
 			drawn++;
 			if (c.ex < clip.x0 || c.ex >= clip.x1 || c.ey < clip.y0 || c.ey >= clip.y1) continue;
@@ -34190,7 +34208,15 @@ var BoardScene = class BoardScene {
 	labelsKey = "";
 	/** Обход карточек нитками (пересобирается при смене геометрии доски). */
 	router = new LinkRouter([]);
-	curveOf = (l, a, b) => this.router.curve(l.fromId, a, l.toId, b);
+	curveOf = (l, a, b) => {
+		const obs = [];
+		for (const sl of [...(this.linksByBlock.get(l.fromId) ?? []), ...(this.linksByBlock.get(l.toId) ?? [])]) {
+			if (sl.id === l.id) continue;
+			const sa = this.blocks.get(sl.fromId), sb = this.blocks.get(sl.toId);
+			if (sa && sb) obs.push(this.router.curve(sl.fromId, sa, sl.toId, sb, null, true).pts);
+		}
+		return this.router.curve(l.fromId, a, l.toId, b, obs);
+	};
 	handles = new Graphics();
 	res;
 	boardId = null;
@@ -34261,6 +34287,7 @@ var BoardScene = class BoardScene {
 			this.applyView();
 		});
 		this.app.ticker.add(() => this.frame(), void 0, UPDATE_PRIORITY.HIGH);
+		window.__scene = this;
 		this.app.ticker.add(() => this.drawFlowDots(performance.now()), void 0, UPDATE_PRIORITY.LOW);
 		this.app.ticker.add(() => this.stats.renderMs = performance.now() - this.frameEnd, void 0, UPDATE_PRIORITY.UTILITY);
 		this.bindInput(this.app.canvas);

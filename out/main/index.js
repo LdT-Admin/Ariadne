@@ -3162,57 +3162,58 @@ async function svgToPng(svg, wasmPath) {
 var CORNER_R = 16;
 var LINK_STUB = 24;
 /**
-* Нитка между карточками. Сторона — по смещению центров: |dx| >= |dy| — выход вбок,
-* иначе — сверху/снизу. Так связаны между собой колонки и ряды, как это видит человек.
+* Нитка между карточками. Вариант 0/1 — по смещению центров (|dx|>=|dy| — вбок, иначе сверху/снизу),
+* варианты 2/3 — то же с выходом/входом с дальней стороны (обход).
 */
-function linkRoute(a, b) {
+function linkRoute(a, b, variant = 0) {
 	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
 	const acx = a.x + aw / 2, acy = a.y + ah / 2;
 	const bcx = b.x + bw / 2, bcy = b.y + bh / 2;
 	const dx = bcx - acx, dy = bcy - acy;
-	const horizontal = Math.abs(dx) >= Math.abs(dy);
-	const dir = horizontal ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
-	if (horizontal) {
-		const sx = acx + dir * aw / 2, ex = bcx - dir * bw / 2;
+	const axisH = variant < 2 ? Math.abs(dx) >= Math.abs(dy) : Math.abs(dx) < Math.abs(dy);
+	const flip = variant >= 2;
+	const dir = axisH ? Math.sign(dx) || 1 : Math.sign(dy) || 1;
+	if (axisH) {
+		const sx = acx + (flip ? -dir : dir) * aw / 2;
+		const ex = bcx + (flip ? dir : -dir) * bw / 2;
 		let sy = acy, ey = bcy;
 		if (Math.abs(sy - ey) < 2 * CORNER_R) {
 			if (acy >= b.y && acy <= b.y + bh) ey = acy;
 			else if (bcy >= a.y && bcy <= a.y + ah) sy = bcy;
 		}
 		const mid = (sx + ex) / 2;
-		const lo = sx + dir * LINK_STUB, hi = ex - dir * LINK_STUB;
-		const roomy = (hi - lo) * dir > 0;
 		return {
 			horizontal: true,
+			flip,
 			dir,
 			sx,
 			sy,
 			ex,
 			ey,
 			mid,
-			lo: roomy ? lo : mid,
-			hi: roomy ? hi : mid
+			lo: mid,
+			hi: mid
 		};
 	}
-	const sy = acy + dir * ah / 2, ey = bcy - dir * bh / 2;
+	const sy = acy + (flip ? -dir : dir) * ah / 2;
+	const ey = bcy + (flip ? dir : -dir) * bh / 2;
 	let sx = acx, ex = bcx;
 	if (Math.abs(sx - ex) < 2 * CORNER_R) {
 		if (acx >= b.x && acx <= b.x + bw) ex = acx;
 		else if (bcx >= a.x && bcx <= a.x + aw) sx = bcx;
 	}
 	const mid = (sy + ey) / 2;
-	const lo = sy + dir * LINK_STUB, hi = ey - dir * LINK_STUB;
-	const roomy = (hi - lo) * dir > 0;
 	return {
 		horizontal: false,
+		flip,
 		dir,
 		sx,
 		sy,
 		ex,
 		ey,
 		mid,
-		lo: roomy ? lo : mid,
-		hi: roomy ? hi : mid
+		lo: mid,
+		hi: mid
 	};
 }
 /** Скругление углов ломаной (плоский массив x,y): каждое колено — короткая квадратичная дуга. */
@@ -3240,19 +3241,20 @@ function roundCorners(c) {
 	return out;
 }
 /**
-* Нитка — кубическая кривая Безье (Miro/FigJam): «рукава» контрольных точек вдоль стороны выхода.
-* pts — та же кривая, разбитая на ломаную (для пунктира, подписи и снапшотов).
+* Нитка — кубическая кривая Безье: «рукава» контрольных точек наружу из стороны выхода
+* и навстречу точке входа. pts — та же кривая ломаной.
 */
-function makeCurve(r, trunk = r.mid) {
+function makeCurve(r) {
 	const { sx, sy, ex, ey } = r;
-	const adx = r.horizontal ? r.dir : 0;
-	const ady = r.horizontal ? 0 : r.dir;
+	const arm = r.flip ? -r.dir : r.dir;
+	const sdx = r.horizontal ? arm : 0, sdy = r.horizontal ? 0 : arm;
+	const edx = r.horizontal ? arm : 0, edy = r.horizontal ? 0 : arm;
 	const dist = Math.hypot(ex - sx, ey - sy);
 	const k = Math.min(170, Math.max(40, dist * .45));
-	const c1x = sx + adx * k, c1y = sy + ady * k;
-	const c2x = ex - adx * k, c2y = ey - ady * k;
+	const c1x = sx + sdx * k, c1y = sy + sdy * k;
+	const c2x = ex - edx * k, c2y = ey - edy * k;
 	const pts = [];
-	if (Math.abs(r.horizontal ? sy - ey : sx - ex) < .5) pts.push(sx, sy, ex, ey);
+	if (!r.flip && Math.abs(r.horizontal ? sy - ey : sx - ex) < .5) pts.push(sx, sy, ex, ey);
 	else for (let i = 0; i <= 22; i++) {
 		const t = i / 22, u = 1 - t;
 		pts.push(u * u * u * sx + 3 * u * u * t * c1x + 3 * u * t * t * c2x + t * t * t * ex, u * u * u * sy + 3 * u * u * t * c1y + 3 * u * t * t * c2y + t * t * t * ey);
@@ -3262,12 +3264,8 @@ function makeCurve(r, trunk = r.mid) {
 		sy,
 		ex,
 		ey,
-		adx,
-		ady,
-		c1x,
-		c1y,
-		c2x,
-		c2y,
+		adx: edx,
+		ady: edy,
 		corners: [sx, sy, ex, ey],
 		pts
 	};
@@ -3402,16 +3400,14 @@ var LinkRouter = class {
 	}
 };
 /** Границы связи (колено всегда между концами) с запасом — для индексов тайлов и отсечения. */
+/** Границы связи с запасом на любой вариант маршрута — для снапшотов. */
 function routedBounds(a, b) {
-	const r = linkRoute(a, b);
-	const k = Math.min(170, Math.max(40, Math.hypot(r.ex - r.sx, r.ey - r.sy) * .45)) + 40;
-	const adx = r.horizontal ? r.dir : 0;
-	const ady = r.horizontal ? 0 : r.dir;
+	const aw = a.w ?? 240, ah = a.h ?? 100, bw = b.w ?? 240, bh = b.h ?? 100;
 	return {
-		x0: Math.min(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
-		y0: Math.min(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k),
-		x1: Math.max(r.sx, r.ex, r.sx + adx * k, r.ex - adx * k),
-		y1: Math.max(r.sy, r.ey, r.sy + ady * k, r.ey - ady * k)
+		x0: Math.min(a.x, b.x) - 220,
+		y0: Math.min(a.y, b.y) - 220,
+		x1: Math.max(a.x + aw, b.x + bw) + 220,
+		y1: Math.max(a.y + ah, b.y + bh) + 220
 	};
 }
 //#endregion
